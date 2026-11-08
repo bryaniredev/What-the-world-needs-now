@@ -22,8 +22,27 @@ jobs:
   collect:
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    # Also lets the job read SITE_PASSPHRASE if it was saved as a github-pages environment secret.
+    environment: github-pages
     steps:
       - uses: actions/checkout@v4
+
+      # Reports only true/false, never the value.
+      - name: Check passphrase secret
+        env:
+          HAS_SECRET: ${{ secrets.SITE_PASSPHRASE != '' }}
+          HAS_VARIABLE: ${{ vars.SITE_PASSPHRASE != '' }}
+        run: |
+          echo "SITE_PASSPHRASE visible as an Actions secret: $HAS_SECRET"
+          echo "SITE_PASSPHRASE found as an Actions *variable* (wrong tab): $HAS_VARIABLE"
+          if [ "$HAS_SECRET" != "true" ]; then
+            if [ "$HAS_VARIABLE" = "true" ]; then
+              echo "::error::SITE_PASSPHRASE was saved on the Variables tab. Delete it there and add it on the Secrets tab (Settings > Secrets and variables > Actions > Secrets > New repository secret)."
+            else
+              echo "::error::No SITE_PASSPHRASE secret is visible to this workflow. Add it under Settings > Secrets and variables > ACTIONS (not Codespaces or Dependabot) > Secrets tab > New repository secret, named exactly SITE_PASSPHRASE."
+            fi
+            exit 1
+          fi
 
       # Scheduled and manual runs always collect. A push only collects when there is
       # no data yet, so the very first push bootstraps the site.
