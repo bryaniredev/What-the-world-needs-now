@@ -171,7 +171,7 @@ def stackexchange(cfg, since, http, status):
         for phrase in cfg.get("phrases", []):
             url = (
                 "https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=creation"
-                f"&title={quote(phrase)}&site={site}&fromdate={int(since)}&pagesize={cfg.get('pagesize', 50)}"
+                f"&title={quote(phrase)}&site={site}&fromdate={int(since) - cfg.get('extra_days', 6) * 86400}&pagesize={cfg.get('pagesize', 50)}"
                 "&filter=withbody" + (f"&key={key}" if key else "")
             )
             try:
@@ -292,24 +292,37 @@ def app_store(cfg, since, http, status):
     out, errors = {}, []
     country, max_rating = cfg.get("country", "us"), cfg.get("max_rating", 2)
     apps = {**_discover_apple(cfg, http, errors), **cfg.get("apps", {})}
+    seen = low = recent = empty = 0
+    urls = [
+        "https://itunes.apple.com/{c}/rss/customerreviews/page=1/id={i}/sortby=mostrecent/json",
+        "https://itunes.apple.com/{c}/rss/customerreviews/id={i}/sortBy=mostRecent/json",
+    ]
     for app, app_id in apps.items():
-        url = f"https://itunes.apple.com/{country}/rss/customerreviews/page=1/id={app_id}/sortby=mostrecent/json"
         try:
-            r = http.get(url)
-            r.raise_for_status()
-            entries = r.json().get("feed", {}).get("entry", [])
-            if isinstance(entries, dict):
-                entries = [entries]
+            entries = []
+            for u in urls:  # Apple has served the feed under both spellings
+                r = http.get(u.format(c=country, i=app_id))
+                r.raise_for_status()
+                entries = r.json().get("feed", {}).get("entry", [])
+                if isinstance(entries, dict):
+                    entries = [entries]
+                if any("im:rating" in e for e in entries):
+                    break
+            if not any("im:rating" in e for e in entries):
+                empty += 1
             for e in entries:
                 if "im:rating" not in e:
                     continue  # first entry can be the app itself
+                seen += 1
                 rating = int(e["im:rating"]["label"])
                 if rating > max_rating:
                     continue
+                low += 1
                 updated = e.get("updated", {}).get("label")
                 ts = datetime.fromisoformat(updated).timestamp() if updated else time.time()
                 if ts < since - 6 * 86400:  # app reviews are sparse; allow a week
                     continue
+                recent += 1
                 rid = e.get("id", {}).get("label")
                 out[f"{app_id}-{rid}"] = _item(
                     name, app, "review", f"{app_id}-{rid}", f"https://apps.apple.com/{country}/app/id{app_id}?see-all=reviews",
@@ -321,7 +334,9 @@ def app_store(cfg, since, http, status):
     items = list(out.values())
     if not items and errors:
         return _fail(status, name, "; ".join(errors[:3]))
-    return _ok(status, name, items, f"{len(apps)} apps checked" + (f", {len(errors)} errors" if errors else ""))
+    note = (f"{len(apps)} apps checked, {empty} returned no reviews; {seen} reviews seen, {low} at ≤{max_rating}★, "
+            f"{recent} from the last week" + (f"; {len(errors)} errors: {'; '.join(errors[:2])}" if errors else ""))
+    return _ok(status, name, items, note)
 
 
 # ------------------------------------------------------------ Shopify App Store
