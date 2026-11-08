@@ -74,6 +74,8 @@ jobs:
         with:
           ref: ${{ github.ref_name }}   # pick up the commit the collect job just pushed
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true   # turn Pages on (source: GitHub Actions) if it isn't yet
       - uses: actions/upload-pages-artifact@v3
         with:
           path: docs
