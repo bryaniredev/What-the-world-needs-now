@@ -1,0 +1,126 @@
+{
+  "_comment": "Edit this file to tune where the daily run looks. Every source is optional; a failing source is logged and skipped.",
+  "lookback_hours": 30,
+  "max_items_per_day": 400,
+  "min_pain_score": 3,
+
+  "hackernews": {
+    "enabled": true,
+    "phrases": [
+      "I wish there was",
+      "is there a tool",
+      "is there an app",
+      "I would pay for",
+      "I'd pay for",
+      "why is there no",
+      "still no good way",
+      "does anyone know a tool",
+      "we built an internal tool",
+      "spreadsheet hell",
+      "so frustrating",
+      "alternative to"
+    ],
+    "hits_per_phrase": 40
+  },
+
+  "reddit": {
+    "enabled": true,
+    "subreddits": [
+      "smallbusiness", "Entrepreneur", "SaaS", "startups", "sidehustle",
+      "freelance", "ecommerce", "shopify", "EtsySellers", "AmazonSeller",
+      "realtors", "PropertyManagement", "landlord", "Accounting", "bookkeeping",
+      "msp", "sysadmin", "ITManagers", "projectmanagement", "marketing",
+      "socialmedia", "PPC", "SEO", "recruiting", "humanresources",
+      "Teachers", "nursing", "medicine", "Dentistry", "Contractor",
+      "Construction", "restaurateur", "KitchenConfidential", "Truckers", "logistics",
+      "nonprofit", "lawyers", "Insurance", "photography", "weddingplanning",
+      "personalfinance", "productivity", "Notion", "excel", "webdev"
+    ],
+    "queries": [
+      "\"is there a tool\"",
+      "\"is there an app\"",
+      "\"I wish there was\"",
+      "\"would pay for\"",
+      "\"so frustrating\"",
+      "\"looking for software\"",
+      "\"manually\" spreadsheet",
+      "\"alternative to\""
+    ],
+    "max_requests": 120
+  },
+
+  "stackexchange": {
+    "enabled": true,
+    "sites": ["softwarerecs", "webapps", "superuser", "pm", "money"],
+    "phrases": ["is there", "looking for", "how can I automate", "software for", "tool to"],
+    "pagesize": 50
+  },
+
+  "github": {
+    "enabled": true,
+    "_comment": "Highly upvoted feature requests opened recently = an unmet need inside an existing tool.",
+    "queries": [
+      "is:issue is:open label:enhancement",
+      "is:issue is:open label:\"feature request\"",
+      "is:issue is:open \"feature request\" in:title"
+    ],
+    "created_within_days": 45,
+    "min_reactions": 15
+  },
+
+  "app_store": {
+    "enabled": true,
+    "_comment": "Apple App Store app IDs. Only 1-2 star reviews are kept. Change or add IDs freely.",
+    "country": "us",
+    "apps": {
+      "QuickBooks": "584606479",
+      "Shopify": "371294472",
+      "Square POS": "335393788",
+      "Slack": "618783545",
+      "Notion": "1232780281",
+      "Asana": "489969512",
+      "Trello": "461504587",
+      "Zoom": "546505307",
+      "Canva": "897446215",
+      "Mailchimp": "366794783",
+      "Microsoft Teams": "1113153706",
+      "Google Sheets": "842849113",
+      "Evernote": "281796108"
+    },
+    "max_rating": 2
+  },
+
+  "shopify_apps": {
+    "enabled": true,
+    "_comment": "Handles from apps.shopify.com/<handle>. Only 1-2 star reviews are kept.",
+    "apps": [
+      "klaviyo-email-marketing", "judgeme", "omnisend", "privy",
+      "loox", "yotpo-social-reviews", "shopify-inbox", "shipstation",
+      "pagefly", "gempages", "matrixify", "sufio"
+    ],
+    "max_rating": 2
+  },
+
+  "wordpress_plugins": {
+    "enabled": true,
+    "plugins": ["woocommerce", "elementor", "wordpress-seo", "contact-form-7", "wpforms-lite", "jetpack", "mailpoet", "the-events-calendar"],
+    "max_rating": 2
+  },
+
+  "jobs": {
+    "enabled": true,
+    "_comment": "Companies paying people to do repetitive work is a strong automation signal.",
+    "remotive_searches": ["data entry", "virtual assistant", "bookkeeper", "operations assistant", "admin assistant", "reconciliation"],
+    "manual_work_signals": [
+      "data entry", "manually", "spreadsheet", "copy and paste", "reconcil",
+      "repetitive", "update records", "excel", "invoice", "scheduling",
+      "follow up", "follow-up", "chase", "compile reports", "back office"
+    ]
+  },
+
+  "ai": {
+    "_comment": "Only used when the ANTHROPIC_API_KEY secret is set. Groups items into named problems and writes plain-English summaries.",
+    "model": "claude-opus-5-5",
+    "max_items_sent": 180
+  }
+}

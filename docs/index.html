@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
+<meta name="googlebot" content="noindex, nofollow, noarchive, nosnippet">
+<meta name="bingbot" content="noindex, nofollow, noarchive">
+<meta name="referrer" content="no-referrer">
+<title>What the World Needs Now</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌍</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="gate" class="gate">
+  <form id="gate-form" class="gate-card" autocomplete="off">
+    <div class="gate-mark" aria-hidden="true">🌍</div>
+    <h1>What the World Needs Now</h1>
+    <label for="pass" class="sr-only">Passphrase</label>
+    <input id="pass" type="password" placeholder="Passphrase" autocomplete="off" spellcheck="false" autofocus>
+    <button type="submit">Enter</button>
+    <p id="gate-msg" class="gate-msg" role="status"></p>
+  </form>
+</div>
+
+<div id="app" class="app" hidden>
+  <header class="top">
+    <div class="brand">🌍 <span>What the World Needs Now</span></div>
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-view="today" aria-selected="true">Today</button>
+      <button role="tab" data-view="trends">Trends</button>
+      <button role="tab" data-view="problems">Problems</button>
+      <button role="tab" data-view="browse">Browse</button>
+      <button role="tab" data-view="about">How it works</button>
+    </nav>
+    <div class="top-right">
+      <select id="day-select" aria-label="Choose day"></select>
+      <button id="theme-toggle" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">☾</button>
+      <button id="lock" class="icon-btn" title="Lock" aria-label="Lock">🔒</button>
+    </div>
+  </header>
+  <main id="main"></main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
