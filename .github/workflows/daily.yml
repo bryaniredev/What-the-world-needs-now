@@ -20,21 +20,33 @@ concurrency:
 
 jobs:
   collect:
-    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
+      # Scheduled and manual runs always collect. A push only collects when there is
+      # no data yet, so the very first push bootstraps the site.
+      - id: gate
+        run: |
+          if [ "${{ github.event_name }}" != "push" ] || [ ! -f docs/data/meta.json ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/setup-python@v5
+        if: steps.gate.outputs.run == 'true'
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: collector/requirements.txt
 
       - run: pip install -r collector/requirements.txt
+        if: steps.gate.outputs.run == 'true'
 
       - name: Collect, analyse, encrypt
+        if: steps.gate.outputs.run == 'true'
         working-directory: collector
         env:
           SITE_PASSPHRASE: ${{ secrets.SITE_PASSPHRASE }}
@@ -48,6 +60,7 @@ jobs:
         run: python -m wtwn.run
 
       - name: Commit results
+        if: steps.gate.outputs.run == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -64,7 +77,7 @@ jobs:
 
   deploy:
     needs: collect
-    if: always() && (needs.collect.result == 'success' || needs.collect.result == 'skipped')
+    if: always() && needs.collect.result == 'success'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
