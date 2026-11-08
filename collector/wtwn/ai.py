@@ -21,11 +21,17 @@ SCHEMA = {
                     "who": {"type": "string", "description": "who has this problem"},
                     "why_unmet": {"type": "string", "description": "why existing tools fail them, from the evidence"},
                     "solution_idea": {"type": "string"},
+                    "mvp_features": {"type": "array", "items": {"type": "string"},
+                                     "description": "the 3 must-have features of a bare-minimum product, most important first"},
+                    "search_keyword": {"type": "string",
+                                       "description": "what a buyer would type into Google, e.g. 'tenant maintenance request software'"},
+                    "costs": {"type": "string", "enum": ["time", "money", "both", "unclear"]},
                     "saas_fit": {"type": "string", "enum": ["high", "medium", "low"]},
                     "theme": {"type": "string"},
                     "item_ids": {"type": "array", "items": {"type": "string"}},
                 },
-                "required": ["key", "title", "summary", "who", "why_unmet", "solution_idea", "saas_fit", "theme", "item_ids"],
+                "required": ["key", "title", "summary", "who", "why_unmet", "solution_idea", "mvp_features", "search_keyword",
+                             "costs", "saas_fit", "theme", "item_ids"],
                 "additionalProperties": False,
             },
         }
@@ -40,6 +46,12 @@ collected today. Your reader is a solo developer looking for real, currently unm
 Group the items into distinct problems (aim for 8-25). A problem needs evidence from at least two items unless a
 single item shows unusually strong demand (many upvotes, explicit willingness to pay). Ignore spam, self-promotion,
 and posts that merely announce a product.
+
+Strong evidence: the same complaint repeated by different people and sources; emotional language; explicit wishes
+("I wish it could...", "is there a tool..."); paying customers of an existing product saying it is missing something,
+hard to use, unreliable or too expensive for what it does (an opening for a leaner alternative); companies paying
+people to do repetitive work. Say whether the problem costs people time, money, or both: problems that cost time or
+money are the ones people pay to solve.
 
 Rate saas_fit: high = software could clearly solve it and people already pay for adjacent tools; medium = software
 helps but is not the whole answer; low = structural, physical, regulatory or interpersonal. Keep low-fit problems
@@ -63,6 +75,8 @@ def refine(items, known, cfg):
         {
             "id": it["id"], "source": it["source"], "where": it["channel"], "type": it["kind_label"],
             "engagement": it["engagement"], "title": it["title"], "text": it["text"][:700],
+            **({"stars": it["rating"]} if it.get("rating") else {}),
+            **({"complaint_types": it["complaints"]} if it.get("complaints") else {}),
         }
         for it in top
     ]

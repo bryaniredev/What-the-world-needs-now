@@ -228,12 +228,71 @@ def github(cfg, since, http, status):
     return _ok(status, name, items)
 
 
+
+# ------------------------------------------------- discovery of popular apps
+def _discover_apple(cfg, http, errors):
+    """Top-grossing apps per genre: categories where people already pay."""
+    found = {}
+    country = cfg.get("country", "us")
+    for genre, gid in cfg.get("discover_top_grossing_genres", {}).items():
+        url = f"https://itunes.apple.com/{country}/rss/topgrossingapplications/limit={cfg.get('discover_per_genre', 15)}/genre={gid}/json"
+        try:
+            r = http.get(url)
+            r.raise_for_status()
+            entries = r.json().get("feed", {}).get("entry", [])
+            for e in entries if isinstance(entries, list) else [entries]:
+                app_id = e.get("id", {}).get("attributes", {}).get("im:id")
+                nm = e.get("im:name", {}).get("label")
+                if app_id and nm:
+                    found[nm] = app_id
+        except Exception as ex:  # noqa: BLE001
+            errors.append(f"discover {genre}: {ex}")
+    return found
+
+
+_SHOPIFY_RESERVED = {"categories", "collections", "partners", "search", "stories", "login", "sitemap", "browse",
+                     "app-groups", "built-for-shopify", "logout", "signup", "pages", "blog", "compare", "apps"}
+
+
+def _discover_shopify(cfg, http, errors):
+    """Most popular apps in each Shopify App Store category, in page order."""
+    handles = []
+    for cat in cfg.get("discover_categories", []):
+        try:
+            r = http.get(f"https://apps.shopify.com/categories/{cat}", headers={"Accept": "text/html"})
+            r.raise_for_status()
+            got = []
+            for a in BeautifulSoup(r.text, "html.parser").find_all("a", href=True):
+                m = re.match(r"^(?:https://apps\.shopify\.com)?/([a-z0-9][a-z0-9-]+)(?:\?|/?$)", a["href"])
+                if m and m.group(1) not in _SHOPIFY_RESERVED and m.group(1) not in got:
+                    got.append(m.group(1))
+            handles += got[: cfg.get("discover_per_category", 6)]
+        except Exception as ex:  # noqa: BLE001
+            errors.append(f"discover {cat}: {ex}")
+    return handles
+
+
+def _discover_wordpress(cfg, http, errors):
+    n = cfg.get("discover_popular", 0)
+    if not n:
+        return []
+    try:
+        r = http.get("https://api.wordpress.org/plugins/info/1.2/?action=query_plugins"
+                     f"&request%5Bbrowse%5D=popular&request%5Bper_page%5D={n}&request%5Bfields%5D%5Bdescription%5D=0")
+        r.raise_for_status()
+        return [p["slug"] for p in r.json().get("plugins", []) if p.get("slug")]
+    except Exception as ex:  # noqa: BLE001
+        errors.append(f"discover popular: {ex}")
+        return []
+
+
 # -------------------------------------------------------------- Apple App Store
 def app_store(cfg, since, http, status):
     name = "app_store"
     out, errors = {}, []
     country, max_rating = cfg.get("country", "us"), cfg.get("max_rating", 2)
-    for app, app_id in cfg.get("apps", {}).items():
+    apps = {**_discover_apple(cfg, http, errors), **cfg.get("apps", {})}
+    for app, app_id in apps.items():
         url = f"https://itunes.apple.com/{country}/rss/customerreviews/page=1/id={app_id}/sortby=mostrecent/json"
         try:
             r = http.get(url)
@@ -262,7 +321,7 @@ def app_store(cfg, since, http, status):
     items = list(out.values())
     if not items and errors:
         return _fail(status, name, "; ".join(errors[:3]))
-    return _ok(status, name, items, f"{len(errors)} apps failed" if errors else None)
+    return _ok(status, name, items, f"{len(apps)} apps checked" + (f", {len(errors)} errors" if errors else ""))
 
 
 # ------------------------------------------------------------ Shopify App Store
@@ -290,8 +349,8 @@ def _parse_shopify_reviews(handle, html_text, max_rating):
                 pass
         if len(text) > 30:
             found.append(_item("shopify_apps", handle, "review", f"{handle}-{rid}",
-                               f"https://apps.shopify.com/{handle}/reviews?ratings%5B%5D=1&ratings%5B%5D=2",
-                               f"{handle}: {rating or '≤2'}★ review", text, ts, 0, rating))
+                               f"https://apps.shopify.com/{handle}/reviews",
+                               f"{handle}: {rating or 'low'}★ review", text, ts, 0, rating))
     return found
 
 
@@ -299,8 +358,10 @@ def shopify_apps(cfg, since, http, status):
     name = "shopify_apps"
     out, errors = {}, []
     max_rating = cfg.get("max_rating", 2)
-    for handle in cfg.get("apps", []):
-        url = f"https://apps.shopify.com/{handle}/reviews?ratings%5B%5D=1&ratings%5B%5D=2&sort_by=newest"
+    handles = list(dict.fromkeys(_discover_shopify(cfg, http, errors) + cfg.get("apps", [])))
+    ratings = "&".join(f"ratings%5B%5D={i}" for i in range(1, max_rating + 1))
+    for handle in handles:
+        url = f"https://apps.shopify.com/{handle}/reviews?{ratings}&sort_by=newest"
         try:
             r = http.get(url, headers={"Accept": "text/html"})
             r.raise_for_status()
@@ -312,7 +373,7 @@ def shopify_apps(cfg, since, http, status):
     items = list(out.values())
     if not items and errors:
         return _fail(status, name, "; ".join(errors[:3]))
-    return _ok(status, name, items, f"{len(errors)} apps failed" if errors else None)
+    return _ok(status, name, items, f"{len(handles)} apps checked" + (f", {len(errors)} errors" if errors else ""))
 
 
 # ----------------------------------------------------------- WordPress plugins
@@ -320,7 +381,8 @@ def wordpress_plugins(cfg, since, http, status):
     name = "wordpress_plugins"
     out, errors = {}, []
     max_rating = cfg.get("max_rating", 2)
-    for slug in cfg.get("plugins", []):
+    plugins = list(dict.fromkeys(cfg.get("plugins", []) + _discover_wordpress(cfg, http, errors)))
+    for slug in plugins:
         url = f"https://wordpress.org/support/plugin/{slug}/reviews/feed/"
         try:
             r = http.get(url)
@@ -355,15 +417,24 @@ def wordpress_plugins(cfg, since, http, status):
 
 # ------------------------------------------------------------------------- Jobs
 def jobs(cfg, since, http, status):
-    """Job posts describing repetitive manual work = something people pay to have done."""
+    """Two uses of job posts (the "Job Search Method"):
+    1. posts describing repetitive manual work become pain points (manual_hits >= 2);
+    2. every post's listed duties are mined for "<duty> management software" ideas.
+    Industry searches (Adzuna, The Muse) cover non-tech jobs; remote boards skew tech.
+    """
     name = "jobs"
     signals = [s.lower() for s in cfg.get("manual_work_signals", [])]
     out, errors = {}, []
+    recent = since - 6 * 86400
 
-    def keep(text):
-        t = text.lower()
-        hits = [s for s in signals if s in t]
-        return hits if len(hits) >= 2 else None
+    def add(id_, where, url, title, body, ts, industry=None, require_manual=False):
+        hits = sum(1 for sg in signals if sg in (body + " " + (title or "")).lower())
+        if require_manual and hits < 2:
+            return
+        it = _item(name, where, "job", id_, url, title, body, ts, 0)
+        it["manual_hits"] = hits
+        it["industry"] = industry
+        out[it["id"]] = it
 
     for term in cfg.get("remotive_searches", []):
         try:
@@ -372,13 +443,9 @@ def jobs(cfg, since, http, status):
             for j in r.json().get("jobs", []):
                 ts = datetime.fromisoformat(j["publication_date"]).replace(tzinfo=timezone.utc).timestamp() \
                     if j.get("publication_date") else time.time()
-                if ts < since - 6 * 86400:
-                    continue
-                body = _strip_html(j.get("description", ""))
-                if keep(body + " " + j.get("title", "")):
-                    out[f"remotive-{j['id']}"] = _item(
-                        name, f"Remotive · {j.get('company_name', '')}", "job", f"remotive-{j['id']}", j.get("url"),
-                        j.get("title"), body, ts, 0)
+                if ts >= recent:
+                    add(f"remotive-{j['id']}", f"Remotive · {j.get('company_name', '')}", j.get("url"), j.get("title"),
+                        _strip_html(j.get("description", "")), ts, j.get("category"), require_manual=True)
         except Exception as e:  # noqa: BLE001
             errors.append(f"remotive/{term}: {e}")
 
@@ -386,23 +453,48 @@ def jobs(cfg, since, http, status):
         r = http.get("https://remoteok.com/api")
         r.raise_for_status()
         for j in r.json():
-            if not isinstance(j, dict) or "id" not in j:
-                continue
-            ts = float(j.get("epoch") or time.time())
-            if ts < since - 6 * 86400:
-                continue
-            body = _strip_html(j.get("description", ""))
-            if keep(body + " " + j.get("position", "")):
-                out[f"remoteok-{j['id']}"] = _item(
-                    name, f"RemoteOK · {j.get('company', '')}", "job", f"remoteok-{j['id']}", j.get("url"),
-                    j.get("position"), body, ts, 0)
+            if isinstance(j, dict) and "id" in j and float(j.get("epoch") or 0) >= recent:
+                add(f"remoteok-{j['id']}", f"RemoteOK · {j.get('company', '')}", j.get("url"), j.get("position"),
+                    _strip_html(j.get("description", "")), float(j["epoch"]), None, require_manual=True)
     except Exception as e:  # noqa: BLE001
         errors.append(f"remoteok: {e}")
+
+    # The Muse: free, full job descriptions, browsable by job category.
+    for cat in cfg.get("themuse_categories", []):
+        try:
+            r = http.get(f"https://www.themuse.com/api/public/jobs?page=0&descending=true&category={quote_plus(cat)}")
+            r.raise_for_status()
+            for j in r.json().get("results", []):
+                ts = datetime.fromisoformat(j["publication_date"].replace("Z", "+00:00")).timestamp() \
+                    if j.get("publication_date") else time.time()
+                if ts >= recent:
+                    add(f"muse-{j['id']}", f"The Muse · {(j.get('company') or {}).get('name', '')}",
+                        (j.get("refs") or {}).get("landing_page"), j.get("name"), _strip_html(j.get("contents", "")), ts, cat)
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"themuse/{cat}: {e}")
+
+    # Adzuna: any industry ("car dealership", "dental office"...). Needs a free key.
+    aid, akey = os.environ.get("ADZUNA_APP_ID"), os.environ.get("ADZUNA_APP_KEY")
+    if aid and akey:
+        for ind in cfg.get("industries", []):
+            try:
+                r = http.get(f"https://api.adzuna.com/v1/api/jobs/{cfg.get('adzuna_country', 'us')}/search/1"
+                             f"?app_id={aid}&app_key={akey}&what={quote_plus(ind)}&results_per_page=30&max_days_old=3")
+                r.raise_for_status()
+                for j in r.json().get("results", []):
+                    ts = datetime.fromisoformat(j["created"].replace("Z", "+00:00")).timestamp() if j.get("created") else time.time()
+                    add(f"adzuna-{j['id']}", f"Adzuna · {(j.get('company') or {}).get('display_name', '')}",
+                        j.get("redirect_url"), j.get("title"), _strip_html(j.get("description", "")), ts, ind)
+            except Exception as e:  # noqa: BLE001
+                errors.append(f"adzuna/{ind}: {e}")
 
     items = list(out.values())
     if not items and errors:
         return _fail(status, name, "; ".join(errors[:3]))
-    return _ok(status, name, items, f"{len(errors)} queries failed" if errors else None)
+    note = None if (aid and akey) else "add ADZUNA_APP_ID/ADZUNA_APP_KEY for industry job searches"
+    if errors:
+        note = f"{len(errors)} queries failed" + (f"; {note}" if note else "")
+    return _ok(status, name, items, note)
 
 
 ALL = {

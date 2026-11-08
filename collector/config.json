@@ -3,7 +3,6 @@
   "lookback_hours": 30,
   "max_items_per_day": 400,
   "min_pain_score": 3,
-
   "hackernews": {
     "enabled": true,
     "phrases": [
@@ -18,23 +17,61 @@
       "we built an internal tool",
       "spreadsheet hell",
       "so frustrating",
-      "alternative to"
+      "alternative to",
+      "use a spreadsheet to",
+      "track it in a spreadsheet",
+      "we pay someone to"
     ],
     "hits_per_phrase": 40
   },
-
   "reddit": {
     "enabled": true,
     "subreddits": [
-      "smallbusiness", "Entrepreneur", "SaaS", "startups", "sidehustle",
-      "freelance", "ecommerce", "shopify", "EtsySellers", "AmazonSeller",
-      "realtors", "PropertyManagement", "landlord", "Accounting", "bookkeeping",
-      "msp", "sysadmin", "ITManagers", "projectmanagement", "marketing",
-      "socialmedia", "PPC", "SEO", "recruiting", "humanresources",
-      "Teachers", "nursing", "medicine", "Dentistry", "Contractor",
-      "Construction", "restaurateur", "KitchenConfidential", "Truckers", "logistics",
-      "nonprofit", "lawyers", "Insurance", "photography", "weddingplanning",
-      "personalfinance", "productivity", "Notion", "excel", "webdev"
+      "smallbusiness",
+      "Entrepreneur",
+      "SaaS",
+      "startups",
+      "sidehustle",
+      "freelance",
+      "ecommerce",
+      "shopify",
+      "EtsySellers",
+      "AmazonSeller",
+      "realtors",
+      "PropertyManagement",
+      "landlord",
+      "Accounting",
+      "bookkeeping",
+      "msp",
+      "sysadmin",
+      "ITManagers",
+      "projectmanagement",
+      "marketing",
+      "socialmedia",
+      "PPC",
+      "SEO",
+      "recruiting",
+      "humanresources",
+      "Teachers",
+      "nursing",
+      "medicine",
+      "Dentistry",
+      "Contractor",
+      "Construction",
+      "restaurateur",
+      "KitchenConfidential",
+      "Truckers",
+      "logistics",
+      "nonprofit",
+      "lawyers",
+      "Insurance",
+      "photography",
+      "weddingplanning",
+      "personalfinance",
+      "productivity",
+      "Notion",
+      "excel",
+      "webdev"
     ],
     "queries": [
       "\"is there a tool\"",
@@ -44,18 +81,30 @@
       "\"so frustrating\"",
       "\"looking for software\"",
       "\"manually\" spreadsheet",
-      "\"alternative to\""
+      "\"alternative to\"",
+      "\"spreadsheet to track\"",
+      "\"track it in excel\""
     ],
     "max_requests": 120
   },
-
   "stackexchange": {
     "enabled": true,
-    "sites": ["softwarerecs", "webapps", "superuser", "pm", "money"],
-    "phrases": ["is there", "looking for", "how can I automate", "software for", "tool to"],
+    "sites": [
+      "softwarerecs",
+      "webapps",
+      "superuser",
+      "pm",
+      "money"
+    ],
+    "phrases": [
+      "is there",
+      "looking for",
+      "how can I automate",
+      "software for",
+      "tool to"
+    ],
     "pagesize": 50
   },
-
   "github": {
     "enabled": true,
     "_comment": "Highly upvoted feature requests opened recently = an unmet need inside an existing tool.",
@@ -67,10 +116,9 @@
     "created_within_days": 45,
     "min_reactions": 15
   },
-
   "app_store": {
     "enabled": true,
-    "_comment": "Apple App Store app IDs. Only 1-2 star reviews are kept. Change or add IDs freely.",
+    "_comment": "1-3 star reviews of the top-grossing apps in each genre (found fresh every day) plus the fixed list. 3-star reviews are kept only when they name a missing feature, price, usability or integration gap.",
     "country": "us",
     "apps": {
       "QuickBooks": "584606479",
@@ -87,37 +135,117 @@
       "Google Sheets": "842849113",
       "Evernote": "281796108"
     },
-    "max_rating": 2
+    "max_rating": 3,
+    "discover_top_grossing_genres": {
+      "Business": 6000,
+      "Productivity": 6007,
+      "Finance": 6015
+    },
+    "discover_per_genre": 15
   },
-
   "shopify_apps": {
     "enabled": true,
-    "_comment": "Handles from apps.shopify.com/<handle>. Only 1-2 star reviews are kept.",
+    "_comment": "Most popular apps in each category (found fresh every day) plus these handles. 1-3 star reviews.",
     "apps": [
-      "klaviyo-email-marketing", "judgeme", "omnisend", "privy",
-      "loox", "yotpo-social-reviews", "shopify-inbox", "shipstation",
-      "pagefly", "gempages", "matrixify", "sufio"
+      "klaviyo-email-marketing",
+      "judgeme",
+      "omnisend",
+      "privy",
+      "loox",
+      "yotpo-social-reviews",
+      "shopify-inbox",
+      "shipstation",
+      "pagefly",
+      "gempages",
+      "matrixify",
+      "sufio"
     ],
-    "max_rating": 2
+    "max_rating": 3,
+    "discover_categories": [
+      "selling-products",
+      "orders-and-shipping",
+      "store-design",
+      "marketing-and-conversion",
+      "store-management",
+      "sales-channels",
+      "finding-products"
+    ],
+    "discover_per_category": 6
   },
-
   "wordpress_plugins": {
     "enabled": true,
-    "plugins": ["woocommerce", "elementor", "wordpress-seo", "contact-form-7", "wpforms-lite", "jetpack", "mailpoet", "the-events-calendar"],
-    "max_rating": 2
+    "plugins": [
+      "woocommerce",
+      "elementor",
+      "wordpress-seo",
+      "contact-form-7",
+      "wpforms-lite",
+      "jetpack",
+      "mailpoet",
+      "the-events-calendar"
+    ],
+    "max_rating": 3,
+    "discover_popular": 25
   },
-
   "jobs": {
     "enabled": true,
-    "_comment": "Companies paying people to do repetitive work is a strong automation signal.",
-    "remotive_searches": ["data entry", "virtual assistant", "bookkeeper", "operations assistant", "admin assistant", "reconciliation"],
+    "_comment": "Job Search Method: duties listed in job posts become '<duty> management software' ideas. Posts describing repetitive manual work also count as pain points.",
+    "remotive_searches": [
+      "data entry",
+      "virtual assistant",
+      "bookkeeper",
+      "operations assistant",
+      "admin assistant",
+      "reconciliation"
+    ],
     "manual_work_signals": [
-      "data entry", "manually", "spreadsheet", "copy and paste", "reconcil",
-      "repetitive", "update records", "excel", "invoice", "scheduling",
-      "follow up", "follow-up", "chase", "compile reports", "back office"
-    ]
+      "data entry",
+      "manually",
+      "spreadsheet",
+      "copy and paste",
+      "reconcil",
+      "repetitive",
+      "update records",
+      "excel",
+      "invoice",
+      "scheduling",
+      "follow up",
+      "follow-up",
+      "chase",
+      "compile reports",
+      "back office"
+    ],
+    "themuse_categories": [
+      "Accounting and Finance",
+      "Administration and Office",
+      "Customer Service",
+      "Healthcare",
+      "Operations",
+      "Project Management",
+      "Sales",
+      "Retail",
+      "Education"
+    ],
+    "industries": [
+      "car dealership",
+      "dental office",
+      "property management",
+      "construction",
+      "logistics",
+      "restaurant",
+      "medical billing",
+      "insurance agency",
+      "law firm",
+      "accounting firm",
+      "veterinary clinic",
+      "hvac",
+      "manufacturing",
+      "nonprofit",
+      "home health care",
+      "salon"
+    ],
+    "adzuna_country": "us"
   },
-
   "ai": {
     "_comment": "Only used when the ANTHROPIC_API_KEY secret is set. Groups items into named problems and writes plain-English summaries.",
     "model": "claude-opus-5-5",

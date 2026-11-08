@@ -37,6 +37,17 @@ class PipelineTest(unittest.TestCase):
             day = crypto.decrypt_obj(key, json.loads((d / "data" / "days" / "2026-01-02.json").read_text()))
             self.assertTrue(day["items"])
             self.assertTrue(all("pain_score" in it for it in day["items"]))
+            # article methods
+            self.assertIn("service appointments", index["duties"])
+            self.assertEqual(index["duties"]["service appointments"]["keyword"], "service appointments management software")
+            self.assertIn("health and safety compliance", index["duties"])
+            self.assertIn("job costs", index["spreadsheet_uses"])
+            notion = index["products"]["app_store|Notion"]
+            self.assertIn("missing_feature", notion["types"])
+            titles = {it["title"] for it in day["items"]}
+            self.assertNotIn("Good but", titles, "3-star review without a named gap is dropped")
+            self.assertIn("Almost there", titles)
+            self.assertNotIn("Service Manager", titles, "job post without manual work only feeds the duties table")
             # nothing readable in plain text
             raw = (d / "data" / "index.json").read_text()
             self.assertNotIn("invoice", raw.lower())
@@ -75,3 +86,24 @@ class ParserTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DiscoveryTest(unittest.TestCase):
+    def test_shopify_category_discovery(self):
+        class R:
+            status_code = 200
+            text = ('<a href="https://apps.shopify.com/klaviyo-email-marketing?surface_type=category">K</a>'
+                    '<a href="/categories/marketing">c</a><a href="https://apps.shopify.com/judgeme">J</a>'
+                    '<a href="https://apps.shopify.com/judgeme/reviews">r</a><a href="https://example.com/x">x</a>')
+
+            def raise_for_status(self):
+                pass
+
+        class H:
+            def get(self, *a, **k):
+                return R()
+
+        errs = []
+        got = sources._discover_shopify({"discover_categories": ["marketing"], "discover_per_category": 5}, H(), errs)
+        self.assertEqual(got, ["klaviyo-email-marketing", "judgeme"])
+        self.assertEqual(errs, [])

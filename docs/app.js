@@ -21,6 +21,27 @@
   };
   const srcLabel = (s) => SOURCE_LABEL[s] || s;
   const fitBadge = (f) => `<span class="fit fit-${esc(f || "low")}" title="How well a software product could address this">SaaS fit: ${esc(f || "?")}</span>`;
+  const COMPLAINT_LABEL = { missing_feature: "Missing feature", hard_to_use: "Hard to use", too_expensive: "Too expensive",
+    unreliable: "Unreliable", integrations: "Integrations", bad_support: "Bad support", slow: "Slow", other: "Other" };
+  const costBadges = (c) => {
+    const arr = Array.isArray(c) ? c : c === "both" ? ["time", "money"] : (c === "time" || c === "money") ? [c] : [];
+    return arr.map((x) => x === "time" ? `<span class="cost" title="Costs people time">⏱ time</span>` : `<span class="cost" title="Costs people money">$ money</span>`).join("");
+  };
+  const q = encodeURIComponent;
+  function validateLinks(kw) {
+    const links = [
+      ["Google (ads + competitors)", `https://www.google.com/search?q=${q(kw)}`],
+      ["“What is …” questions", `https://www.google.com/search?q=${q("what is " + kw)}`],
+      ["Google Trends", `https://trends.google.com/trends/explore?q=${q(kw)}`],
+      ["G2", `https://www.g2.com/search?query=${q(kw)}`],
+      ["Capterra", `https://www.capterra.com/search/?query=${q(kw)}`],
+      ["Reddit", `https://www.reddit.com/search/?q=${q(kw)}`],
+      ["Keyword Planner", "https://ads.google.com/aw/keywordplanner/home"],
+    ];
+    return `<details class="validate"><summary>Validate “${esc(kw)}”</summary>
+      <p class="small muted">Ads and several competing products = a market that already pays. Check search volume, then read competitors' 1-star reviews.</p>
+      <div class="links">${links.map(([l, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(l)} ↗</a>`).join("")}</div></details>`;
+  }
   const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
   const series = () => [1, 2, 3, 4, 5, 6, 7, 8].map((i) => cssVar(`--s${i}`));
 
@@ -139,6 +160,7 @@
       else if (state.view === "trends") renderTrends(main);
       else if (state.view === "problems") renderProblems(main);
       else if (state.view === "browse") await renderBrowse(main);
+      else if (state.view === "mines") renderMines(main);
       else renderAbout(main);
     } catch (e) {
       main.innerHTML = `<div class="empty">Couldn't render this view: ${esc(e.message)}</div>`;
@@ -155,15 +177,18 @@
     const extra = p.method === "ai" ? `<dl>
         <div><dt>Who</dt><dd>${esc(p.who)}</dd></div>
         <div><dt>Why it's unmet</dt><dd>${esc(p.why_unmet)}</dd></div>
-        <div><dt>Possible solution</dt><dd>${esc(p.solution_idea)}</dd></div></dl>` : "";
+        <div><dt>Possible solution</dt><dd>${esc(p.solution_idea)}</dd></div>
+        ${(p.mvp_features || []).length ? `<div><dt>Bare-minimum MVP</dt><dd><ol class="mvp">${p.mvp_features.map((f) => `<li>${esc(f)}</li>`).join("")}</ol></dd></div>` : ""}</dl>` : "";
+    const costs = p.costs || [...new Set(evidence.flatMap((it) => it.costs || []))];
     return `<article class="card">
-      <div class="meta">${fitBadge(p.saas_fit)}${isNew ? `<span class="new-badge">New</span>` : `<span class="chip">Seen ${seen} day${seen === 1 ? "" : "s"}</span>`}<span class="chip">${esc(p.theme || "")}</span></div>
+      <div class="meta">${fitBadge(p.saas_fit)}${isNew ? `<span class="new-badge">New</span>` : `<span class="chip">Seen ${seen} day${seen === 1 ? "" : "s"}</span>`}<span class="chip">${esc(p.theme || "")}</span>${costBadges(costs)}</div>
       <h3>${esc(p.title)}</h3>
       <p>${esc(p.summary)}</p>
       ${extra}
       <div class="meta">${(p.sources || []).map((s) => `<span class="chip">${esc(srcLabel(s))}</span>`).join("")}<span class="muted">${evidence.length} mention${evidence.length === 1 ? "" : "s"}</span></div>
       <details><summary>Evidence</summary><ul>${evidence.slice(0, 12).map((it) =>
         `<li><a href="${safeUrl(it.url)}" target="_blank" rel="noopener noreferrer">${esc(it.title || it.text.slice(0, 90))}</a> <span class="muted">· ${esc(it.channel)}</span></li>`).join("")}</ul></details>
+      ${validateLinks(p.search_keyword || p.title)}
     </article>`;
   }
 
@@ -172,6 +197,8 @@
       <div class="t"><a href="${safeUrl(it.url)}" target="_blank" rel="noopener noreferrer">${esc(it.title || "(untitled)")}</a></div>
       <div class="x">${esc(it.text.slice(0, 320))}${it.text.length > 320 ? "…" : ""}</div>
       <div class="meta">${fitBadge(it.saas_fit)}<span class="chip">${esc(it.kind_label)}</span><span class="chip">${esc(it.channel)}</span>
+        ${it.rating ? `<span class="chip">${"★".repeat(it.rating)}</span>` : ""}${costBadges(it.costs)}
+        ${(it.complaints || []).slice(0, 3).map((c) => `<span class="chip">${esc(COMPLAINT_LABEL[c] || c)}</span>`).join("")}
         ${(it.signals || []).slice(0, 3).map((s) => `<span class="chip">“${esc(s)}”</span>`).join("")}
         <span class="score" title="Pain score: strength of complaint language + engagement">● ${esc(it.pain_score)}</span></div>
     </div>`;
@@ -376,6 +403,75 @@
     main.querySelectorAll("tr.clickable").forEach((tr) => tr.addEventListener("click", () => { const d = tr.querySelector(".detail"); d.hidden = !d.hidden; }));
   }
 
+
+  // ------------------------------------------------------------ idea mines
+  function windowDates(n) { return state.index.days.map((d) => d.date).slice(-n); }
+  function inWindow(counts, dates) { return dates.reduce((s, d) => s + ((counts || {})[d] || 0), 0); }
+
+  function renderMines(main) {
+    const win = state.mwin || 30;
+    const dates = windowDates(win);
+    const srcFilter = state.msrc || "all";
+
+    const products = Object.values(state.index.products || {}).map((p) => {
+      const types = Object.fromEntries(Object.entries(p.types || {}).map(([t, c]) => [t, inWindow(c, dates)]).filter(([, n]) => n));
+      return { ...p, n: inWindow(p.counts, dates), typesW: types };
+    }).filter((p) => p.n && (srcFilter === "all" || p.source === srcFilter)).sort((a, b) => b.n - a.n);
+    const typeTotals = {};
+    products.forEach((p) => Object.entries(p.typesW).forEach(([t, n]) => { typeTotals[t] = (typeTotals[t] || 0) + n; }));
+    const srcs = [...new Set(Object.values(state.index.products || {}).map((p) => p.source))];
+
+    const table = (hist, keyed) => Object.entries(hist || {}).map(([phrase, e]) => ({
+      phrase, ...e, n: inWindow(e.counts, dates), days: dates.filter((d) => (e.counts || {})[d]).length,
+    })).filter((r) => r.n).sort((a, b) => (b.days - a.days) || (b.n - a.n)).slice(0, 60).map((r) => `<tr>
+        <td><strong>${esc(r.phrase)}</strong>${(r.examples || []).length ? `<div class="small muted">e.g. ${r.examples.slice(0, 2).map((x) =>
+          `<a href="${safeUrl(x.url)}" target="_blank" rel="noopener noreferrer">${esc((x.title || "").slice(0, 60))}</a>${x.industry ? ` (${esc(x.industry)})` : ""}`).join(" · ")}</div>` : ""}</td>
+        ${keyed ? `<td><a href="https://www.google.com/search?q=${q(r.keyword || r.phrase)}" target="_blank" rel="noopener noreferrer">${esc(r.keyword || r.phrase)} ↗</a></td>` : ""}
+        <td class="num">${r.n}</td><td class="num">${r.days}</td></tr>`).join("");
+
+    const dutyRows = table(state.index.duties, true);
+    const sheetRows = table(state.index.spreadsheet_uses, false);
+
+    main.innerHTML = `
+      <h2>Idea mines</h2>
+      <p class="sub">Three proven ways of finding SaaS ideas, run automatically every day.</p>
+      <div class="toolbar"><div class="seg" id="mwin">${[[7, "7 days"], [30, "30 days"], [90, "90 days"], [3650, "All"]].map(([v, l]) => `<button data-w="${v}" aria-pressed="${win === v}">${l}</button>`).join("")}</div></div>
+
+      <h2>Incumbent gaps: what paying customers say is broken</h2>
+      <p class="sub">1–3★ reviews of the most popular apps (Apple App Store top-grossing, Shopify categories, WordPress) and upvoted GitHub feature requests.
+        Repeated “missing feature” or “too expensive for what it does” complaints point to a leaner alternative.</p>
+      <div class="toolbar">
+        <select id="msrc"><option value="all">All sources</option>${srcs.map((s) => `<option value="${esc(s)}" ${s === srcFilter ? "selected" : ""}>${esc(srcLabel(s))}</option>`).join("")}</select>
+        <div class="chips">${Object.entries(typeTotals).sort((a, b) => b[1] - a[1]).map(([t, n]) => `<span class="chip">${esc(COMPLAINT_LABEL[t] || t)} · ${n}</span>`).join("")}</div>
+      </div>
+      <div class="panel table-wrap"><table>
+        <thead><tr><th>Product</th><th>What people complain about</th><th class="num">Complaints</th></tr></thead>
+        <tbody>${products.slice(0, 80).map((p, i) => `<tr class="clickable" data-i="${i}">
+          <td><strong>${esc(p.name)}</strong><div class="small muted">${esc(srcLabel(p.source))}</div></td>
+          <td><div class="chips">${Object.entries(p.typesW).sort((a, b) => b[1] - a[1]).map(([t, n]) => `<span class="chip">${esc(COMPLAINT_LABEL[t] || t)} ${n}</span>`).join("")}</div>
+            <div class="detail small" hidden><ul class="quotes">${(p.quotes || []).map((x) => `<li>${x.rating ? `${"★".repeat(x.rating)} ` : ""}<a href="${safeUrl(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.title)}</a>: ${esc(x.text)} <span class="muted">(${esc(x.date)})</span></li>`).join("")}</ul></div></td>
+          <td class="num">${p.n}</td></tr>`).join("") || `<tr><td colspan="3" class="muted">No reviews in this window yet.</td></tr>`}</tbody></table>
+        <p class="small muted">Click a row for recent quotes.</p></div>
+
+      <div class="grid2" style="margin-top:12px">
+        <div class="panel table-wrap"><strong>Jobs → software ideas</strong>
+          <p class="small muted">Duties pulled from job posts across industries. Formula: duty + “management software”. Duties that show up in many posts are work companies already pay people for.</p>
+          <table><thead><tr><th>Duty</th><th>Search</th><th class="num">Posts</th><th class="num">Days</th></tr></thead>
+          <tbody>${dutyRows || `<tr><td colspan="4" class="muted">No job posts in this window yet.</td></tr>`}</tbody></table></div>
+        <div class="panel table-wrap"><strong>What people use spreadsheets for</strong>
+          <p class="small muted">“We track X in a spreadsheet.” Every one is a workflow that might deserve real software.</p>
+          <table><thead><tr><th>Used for</th><th class="num">Mentions</th><th class="num">Days</th></tr></thead>
+          <tbody>${sheetRows || `<tr><td colspan="3" class="muted">Nothing yet.</td></tr>`}</tbody></table></div>
+      </div>`;
+
+    $("#mwin").addEventListener("click", (e) => { const w = e.target.closest("button")?.dataset.w; if (w) { state.mwin = +w; render(); } });
+    $("#msrc").addEventListener("change", (e) => { state.msrc = e.target.value; render(); });
+    main.querySelectorAll("tr.clickable").forEach((tr) => tr.addEventListener("click", (e) => {
+      if (e.target.closest("a")) return;
+      const d = tr.querySelector(".detail"); d.hidden = !d.hidden;
+    }));
+  }
+
   // ----------------------------------------------------------------- browse
   async function renderBrowse(main) {
     const day = await getDay(state.date);
@@ -416,6 +512,13 @@
         <li><strong>Highly upvoted GitHub feature requests</strong>: needs inside existing tools that maintainers aren't meeting.</li>
         <li><strong>Job posts</strong> describing repetitive manual work (data entry, reconciliation, chasing): if a company pays a person to do it, software might do it cheaper.</li>
       </ul>
+      <h2>The three classic methods, automated</h2>
+      <ul>
+        <li><strong>Job Search Method</strong>: job posts across industries are read for their listed duties (“schedule service appointments”, “ensure compliance with safety regulations”), each turned into a “… management software” search. See <em>Idea mines</em>.</li>
+        <li><strong>App Store Method</strong>: each day the most popular apps per category are found fresh (top-grossing Business/Productivity/Finance iPhone apps, popular Shopify apps per category, popular WordPress plugins) and their 1–3★ reviews are mined for missing features, usability, price and integration complaints.</li>
+        <li><strong>What-They're-Using-Excel-For Method</strong>: phrases like “we track X in a spreadsheet” are collected and counted.</li>
+        <li><strong>Review mining with AI</strong>: with an Anthropic key, Claude groups the day's evidence into problems and writes who has them, why tools fail them, whether they cost time or money, and a 3-feature MVP.</li>
+      </ul>
       <h2>Reading the scores</h2>
       <ul>
         <li><strong>Pain score</strong> adds up strong-need phrases (“would pay”, “is there a tool”, “manually”, “too expensive”…) and engagement (upvotes, comments, reactions).</li>
@@ -427,6 +530,8 @@
         <li>Open the evidence links and read the replies. Are others saying “same”?</li>
         <li>Check the problem appears in more than one <em>source</em>, not only one subreddit.</li>
         <li>Look for an incumbent with bad reviews: that's a market that already pays.</li>
+        <li>Use the <em>Validate</em> links on each problem: are there ads and competitors for the search phrase? Is search volume steady or rising?</li>
+        <li>Before building, put up a one-page landing page with an email form, share it where the complainers are, and aim for 20–30 sign-ups.</li>
         <li>Reply to or DM a few posters and ask how they handle it today and what it costs them.</li>
       </ol>
       <p class="muted small">Index last updated ${esc(state.index.updated || "")}.</p>

@@ -165,3 +165,9 @@ tr.clickable:hover td { background: var(--surface-2); }
 :root { --seq-1: #b7d3f6; --seq-2: #5598e7; --seq-3: #1c5cab; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --seq-1: #184f95; --seq-2: #2a78d6; --seq-3: #86b6ef; } }
 :root[data-theme="dark"] { --seq-1: #184f95; --seq-2: #2a78d6; --seq-3: #86b6ef; }
+.cost { padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-2); white-space: nowrap; }
+.validate .links { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 13px; margin-top: 6px; }
+.validate p { margin: 6px 0 0; }
+ol.mvp { margin: 0; padding-left: 18px; }
+ul.quotes { margin: 8px 0 0; padding-left: 18px; }
+ul.quotes li { margin: 6px 0; color: var(--text-2); overflow-wrap: anywhere; }

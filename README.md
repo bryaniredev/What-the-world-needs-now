@@ -16,15 +16,38 @@ Search engines are told not to index it (`noindex` meta tags and `robots.txt`).
 | Reddit (45 business and trade subreddits) | "is there a tool", "I wish there was", "would pay for", "manually … spreadsheet", "alternative to" | People describe their pain in their own words, in niche communities |
 | Hacker News (Algolia API) | The same phrasing, plus "we built an internal tool" | Companies building it themselves = demand nobody sells to |
 | Stack Exchange (Software Recs, Web Apps, Super User, PM, Money) | Titles like "is there…", "looking for…", "software for…" | Explicit requests for software that may not exist |
-| Apple App Store | 1–2★ reviews of QuickBooks, Shopify, Square, Notion, Slack… | What incumbents get wrong for paying customers |
-| Shopify App Store | 1–2★ reviews of popular apps | Merchants already paying and still unhappy |
-| WordPress plugins | 1–2★ reviews of WooCommerce, Elementor, Yoast… | Same, for site owners |
+| Apple App Store | 1–3★ reviews of the **top-grossing** Business, Productivity and Finance apps (found fresh each day) plus a fixed list | What incumbents get wrong for paying customers |
+| Shopify App Store | 1–3★ reviews of the **most popular apps in each category** (found fresh each day) | Merchants already paying and still unhappy |
+| WordPress plugins | 1–3★ reviews of the 25 most popular plugins | Same, for site owners |
 | GitHub | Recently opened feature requests with many 👍 | Unmet needs inside tools people already use |
-| Job boards (Remotive, RemoteOK) | Posts describing data entry, reconciliation, chasing, copy-paste | If a company pays a person to do it, software might do it cheaper |
+| Job posts (The Muse, Remotive, RemoteOK, optional Adzuna by industry) | The duties listed in each post, plus posts describing data entry, reconciliation, chasing, copy-paste | If a company pays a person to do it, software might do it cheaper |
 
-These come from the usual playbooks (job-listing mining, 1-star review mining) plus a few more that tend to work:
-cross-checking the same pain across several independent sources, watching marketplaces where people already pay
-(Shopify and WordPress), and treating heavily upvoted feature requests as a backlog incumbents are ignoring.
+3-star reviews are kept only when they name a gap (a missing feature, the price, usability or integrations),
+because "good, but…" reviews are often where the clearest gaps are.
+
+### The idea-finding methods it automates
+
+- **Job Search Method** (Tom Zaragoza): read job descriptions in an industry, take each responsibility and add
+  "management software" ("ensure compliance with health and safety regulations" becomes
+  *health and safety compliance management software*), then search it. The collector pulls duties out of every
+  job post it sees and counts how often each shows up across posts and days.
+- **App Store Method**: pick an app store category, sort by popularity, read the 1-star reviews of the top apps
+  for what's badly missing. Done for the Apple App Store, Shopify App Store and WordPress plugins.
+- **What-They're-Using-Excel-For Method**: phrases like "we track job costs in a spreadsheet" are pulled out and
+  counted. Each is a workflow that might deserve real software.
+- **Borrow it from 1-star reviews** (Aytekin Tank): mine reviews of tools in categories with recurring spend for
+  repeated complaints, emotional language, "I wish it could…" and "too expensive for what it does", then have AI
+  summarise the pain points and scope a minimal product. The *Idea mines* tab tallies complaint types per product
+  (missing feature, hard to use, too expensive, unreliable, integrations, support, slow). With an Anthropic key,
+  Claude writes each problem up with whether it costs people time or money and a 3-feature MVP.
+- **Validation**: every problem card has links to check it the way both articles suggest: Google (are there ads
+  and competitors?), "what is …" questions, Google Trends, G2, Capterra, Reddit and Keyword Planner.
+- Also: Reddit, Hacker News and Stack Exchange "is there a tool…" posts, upvoted GitHub feature requests, and
+  checking whether the same pain shows up in several unrelated sources.
+
+Not covered: G2 and Capterra block scrapers, so they're only linked for manual checks; the Chrome Web Store,
+Salesforce AppExchange and Google Play have no public review feed.
+
 Edit `collector/config.json` to change the subreddits, apps, plugins, search phrases or thresholds.
 
 Problems that software can't fix (rent, staffing, regulation) are **kept** when lots of people share them.
@@ -38,6 +61,8 @@ They're labelled `SaaS fit: low` so you can filter them in or out.
   fastest (last 7 days vs the previous 7).
 - **Problems**: every problem ever detected, with days seen, total mentions, a 30-day sparkline, and filters.
   A problem seen on many days from several sources is the strongest signal.
+- **Idea mines**: incumbent gaps (complaints per product), jobs → software ideas (duties from job posts and their
+  "management software" search), and what people use spreadsheets for. Each can be viewed over 7, 30, 90 days or all time.
 - **Browse**: every item from any day, searchable and filterable.
 
 ## Setup (one time)
@@ -57,6 +82,7 @@ They're labelled `SaaS fit: low` so you can filter them in or out.
 | --- | --- |
 | `ANTHROPIC_API_KEY` | Claude groups the day's items into named problems and writes who has the problem, why existing tools fail, and a solution idea. It also reuses names from earlier days so trends line up. Roughly one request per day. Without it, problems are grouped by shared phrases. |
 | `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` | Reddit often blocks anonymous requests from cloud servers. Create a free "script" app at reddit.com/prefs/apps and add its id and secret to make the Reddit source reliable. |
+| `ADZUNA_APP_ID` / `ADZUNA_APP_KEY` | Job searches by industry (car dealerships, dental offices, property management…, see `jobs.industries` in the config), the core of the Job Search Method. A free key is available at developer.adzuna.com. Without it, job posts come from The Muse and remote job boards only. |
 | `STACKEXCHANGE_KEY` | Raises the Stack Exchange quota (optional; the default is enough). |
 
 ## Running locally
@@ -93,7 +119,7 @@ To preview the site, serve `docs/` (for example `python -m http.server -d docs`)
 collector/            Python daily job
   config.json         sources, phrases, thresholds
   wtwn/sources.py     one collector per source (each fails independently)
-  wtwn/analyze.py     pain score, themes, SaaS fit, keyword clusters
+  wtwn/analyze.py     pain score, themes, SaaS fit, complaint types, job duties, spreadsheet uses, clusters
   wtwn/ai.py          optional Claude grouping
   wtwn/run.py         orchestration + history/trend index
 docs/                 the GitHub Pages site (static, no build step)

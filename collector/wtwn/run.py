@@ -78,8 +78,7 @@ def build_day(date, raw, status, cfg, index, state):
     seen = state.setdefault("seen", {})
     fresh = [it for it in raw if it["id"] not in seen]
     scored = [analyze.score_item(it) for it in fresh]
-    keep = [it for it in scored if it["pain_score"] >= cfg.get("min_pain_score", 3)
-            and (it["signals"] or it["kind"] != "discussion")]  # engagement alone is not pain
+    keep = [it for it in scored if analyze.keep_item(it, cfg.get("min_pain_score", 3))]
     keep.sort(key=lambda x: -x["pain_score"])
     keep = keep[: cfg.get("max_items_per_day", 400)]
     for it in fresh:
@@ -94,9 +93,29 @@ def build_day(date, raw, status, cfg, index, state):
     else:
         log(f"[ai] {ai_note}: {len(problems)} problems")
 
+    # Job Search Method: duties from every job post, not only the "manual work" ones.
+    duties = {}
+    for it in scored:
+        for d in it.get("duties", []):
+            e = duties.setdefault(d, {"phrase": d, "keyword": analyze.software_keyword(d), "count": 0, "examples": []})
+            e["count"] += 1
+            if len(e["examples"]) < 3 and all(x["url"] != it["url"] for x in e["examples"]):
+                e["examples"].append({"title": it["title"], "url": it["url"], "where": it["channel"], "industry": it.get("industry")})
+    # What-They're-Using-Excel-For Method
+    sheets = {}
+    for it in scored:
+        for u in it.get("spreadsheet_uses", []):
+            e = sheets.setdefault(u, {"phrase": u, "count": 0, "examples": []})
+            e["count"] += 1
+            if len(e["examples"]) < 3 and all(x["url"] != it["url"] for x in e["examples"]):
+                e["examples"].append({"title": it["title"], "url": it["url"], "where": it["channel"]})
+
     for it in keep:
         it["text"] = it["text"][:700]
+        it.pop("duties", None)
     return {
+        "duties": sorted(duties.values(), key=lambda e: -e["count"])[:150],
+        "spreadsheet_uses": sorted(sheets.values(), key=lambda e: -e["count"])[:80],
         "date": date,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "sources": status,
@@ -117,6 +136,8 @@ def merge_index(index, day):
         "by_theme": dict(Counter(t for it in items for t in it["themes"])),
         "by_fit": dict(Counter(it["saas_fit"] for it in items)),
         "by_kind": dict(Counter(it["kind"] for it in items)),
+        "by_complaint": dict(Counter(c for it in items for c in it.get("complaints", []))),
+        "by_cost": dict(Counter(c for it in items for c in it.get("costs", []))),
         "top": [p["title"] for p in day["problems"][:5]],
     }
     index["days"] = [d for d in index["days"] if d["date"] != date] + [summary]
@@ -141,6 +162,40 @@ def merge_index(index, day):
     if len(kws) > 600:
         ranked = sorted(kws, key=lambda k: -sum(kws[k].values()))
         index["keywords"] = {k: kws[k] for k in ranked[:600]}
+    # Incumbent gaps: complaints per product from reviews and feature requests.
+    products = index.setdefault("products", {})
+    for it in items:
+        if it["kind"] not in ("review", "feature_request"):
+            continue
+        k = f"{it['source']}|{it['channel']}"
+        e = products.setdefault(k, {"name": it["channel"], "source": it["source"], "counts": {}, "types": {}, "quotes": []})
+        e["counts"][date] = e["counts"].get(date, 0) + 1
+        for t in it.get("complaints", []) or ["other"]:
+            e["types"].setdefault(t, {})[date] = e["types"].get(t, {}).get(date, 0) + 1
+        if not any(q["text"] == it["text"][:280] for q in e["quotes"]):
+            e["quotes"] = ([{"date": date, "title": it["title"], "text": it["text"][:280], "url": it["url"],
+                             "rating": it.get("rating"), "types": it.get("complaints", [])}] + e["quotes"])[:8]
+    if len(products) > 500:
+        ranked = sorted(products, key=lambda k: -sum(products[k]["counts"].values()))
+        index["products"] = {k: products[k] for k in ranked[:500]}
+
+    for field, rows in (("duties", day.get("duties", [])), ("spreadsheet_uses", day.get("spreadsheet_uses", []))):
+        hist = index.setdefault(field, {})
+        for r in rows:
+            e = hist.setdefault(r["phrase"], {"counts": {}, "examples": []})
+            e["counts"][date] = r["count"]
+            if "keyword" in r:
+                e["keyword"] = r["keyword"]
+            seen_urls, merged = set(), []
+            for x in r["examples"] + e["examples"]:
+                if x.get("url") not in seen_urls:
+                    seen_urls.add(x.get("url"))
+                    merged.append(x)
+            e["examples"] = merged[:4]
+        if len(hist) > 600:
+            ranked = sorted(hist, key=lambda k: (-len(hist[k]["counts"]), -sum(hist[k]["counts"].values())))
+            index[field] = {k: hist[k] for k in ranked[:600]}
+
     index["updated"] = day["generated_at"]
     return index
 

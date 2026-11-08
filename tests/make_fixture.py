@@ -25,6 +25,15 @@ TEMPLATES = [
      "I waste hours every weekend on grading. I wish there was a way to batch feedback on essays without copying comments by hand."),
     ("reddit", "r/personalfinance", "discussion", "Rent is crazy and my landlord won't fix anything",
      "Housing in my city is insane. Frustrating situation, no idea what to do."),
+    ("jobs", "The Muse · Metro Motors", "job", "Service Manager",
+     "Responsibilities: Schedule service appointments. Ensure compliance with health and safety regulations. "
+     "Process warranty claims and track vehicle repair status."),
+    ("app_store", "Notion", "review", "Good but",
+     "Pretty good app overall, I like it."),
+    ("app_store", "Notion", "review", "Almost there",
+     "Nice app but it doesn't support offline mode and the price increase made it too expensive."),
+    ("reddit", "r/Contractor", "discussion", "How do you all handle job costing?",
+     "We track job costs in a giant spreadsheet and it takes forever. Is there a tool that isn't overpriced?"),
 ]
 
 
@@ -38,8 +47,11 @@ def make(n=60, seed=1, now=None):
             "id": f"{s}:fx{seed}-{i}", "source": s, "channel": ch, "kind": k,
             "url": "https://example.com/" + str(i), "title": t, "text": x,
             "created": int(now - rnd.randint(0, 86000)), "engagement": rnd.randint(0, 300),
-            "rating": 1 if k == "review" else None,
+            "rating": (3 if t in ("Good but", "Almost there") else 1) if k == "review" else None,
         })
+        if s == "jobs" and ch.startswith("The Muse"):
+            out[-1]["manual_hits"] = 0
+            out[-1]["industry"] = "car dealership"
     return out
 
 

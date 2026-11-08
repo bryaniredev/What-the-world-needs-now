@@ -148,7 +148,8 @@ def score_item(it):
     text = f"{it['title']} {it['text']}"
     s, sig = signals_for(text)
     if it["kind"] == "review":
-        s += 3 if (it.get("rating") or 5) <= 1 else 2
+        r = it.get("rating") or 5
+        s += 3 if r <= 1 else 2 if r == 2 else 1
     elif it["kind"] == "feature_request":
         s += 3
     elif it["kind"] == "job":
@@ -160,7 +161,24 @@ def score_item(it):
     it["saas_fit"] = saas_fit_for(text, it["kind"])
     it["keywords"] = keywords_for(text)
     it["kind_label"] = KIND_LABEL.get(it["kind"], it["kind"])
+    it["costs"] = costs_for(sig)
+    if it["kind"] in ("review", "feature_request"):
+        it["complaints"] = complaint_types_for(text)
+    uses = spreadsheet_uses_for(text)
+    if uses:
+        it["spreadsheet_uses"] = uses
+    if it["kind"] == "job":
+        it["duties"] = duties_for(it["text"])
     return it
+
+
+def keep_item(it, min_score):
+    """Is this a pain point worth showing? Engagement alone is not pain."""
+    if it["kind"] == "job":
+        return it.get("manual_hits", 2) >= 2  # other job posts only feed the duties table
+    if it["kind"] == "review" and (it.get("rating") or 1) >= 3:
+        return bool(GAP_TYPES & set(it.get("complaints", [])))  # 3-star: only when it names a gap
+    return it["pain_score"] >= min_score and (bool(it["signals"]) or it["kind"] != "discussion")
 
 
 def _short(t, n=90):
@@ -198,6 +216,7 @@ def heuristic_clusters(items, max_clusters=25):
         clusters.append({
             "key": re.sub(r"[^a-z0-9]+", "-", g).strip("-"),
             "title": _short(items[members[0]]["title"] or items[members[0]]["text"]),
+            "search_keyword": f"{g} software",
             "summary": _cluster_summary(g, members, items),
             "theme": th,
             "saas_fit": fits,
@@ -209,3 +228,106 @@ def heuristic_clusters(items, max_clusters=25):
         if len(clusters) >= max_clusters:
             break
     return clusters
+
+
+# --------------------------------------------------------- incumbent gaps
+# What paying customers say is wrong with a product (1-3 star reviews, feature requests).
+COMPLAINTS = {
+    "missing_feature": r"\bmissing|doesn't (?:support|have|allow|let)|does not (?:support|have|allow|let)|no (?:way|option) to|\black(?:s|ing)\b|i wish (?:it|they|there)|please add|would love (?:to see|if)|feature request|can't even|cannot even|needs? (?:a|an|the) option",
+    "hard_to_use": r"\bconfusing|hard to (?:use|figure|understand|navigate|set ?up|find)|complicated|not intuitive|unintuitive|clunky|learning curve|user[- ]unfriendly|too many (?:steps|clicks)",
+    "too_expensive": r"\bexpensive|overpriced|price (?:increase|hike)|pricey|hidden fees?|not worth (?:the|it)|charg(?:ed|es|ing) (?:me|us)|raised (?:the|their) price|paywall",
+    "unreliable": r"\bbug(?:gy|s)?\b|crash|broken|stopped working|glitch|doesn't work|does not work|not working|lost (?:all )?(?:my |our )?data|keeps (?:failing|logging)",
+    "integrations": r"\bintegrat|\bsync|connect(?:ion|or)?s?\b|\bapi\b|zapier|\bexport|\bimport",
+    "bad_support": r"\bsupport (?:is|was|team)|customer service|no response|never (?:replied|responded|answered|heard back)|ticket",
+    "slow": r"\bslow|\blag(?:gy)?\b|takes forever|loading",
+}
+COMPLAINT_LABEL = {
+    "missing_feature": "Missing feature", "hard_to_use": "Hard to use", "too_expensive": "Too expensive",
+    "unreliable": "Unreliable", "integrations": "Integrations", "bad_support": "Bad support", "slow": "Slow",
+}
+GAP_TYPES = {"missing_feature", "hard_to_use", "too_expensive", "integrations"}
+_COMPLAINT_RX = {k: re.compile(v, re.I) for k, v in COMPLAINTS.items()}
+
+
+def complaint_types_for(text):
+    return [k for k, rx in _COMPLAINT_RX.items() if rx.search(text)]
+
+
+def costs_for(signals):
+    """Problems are grounded in time or money spent."""
+    out = []
+    if set(signals) & {"time sink", "manual work", "workaround", "spreadsheet workaround"}:
+        out.append("time")
+    if set(signals) & {"too expensive", "would pay", "looking to switch"}:
+        out.append("money")
+    return out
+
+
+# ------------------------------------------------- Job Search Method (duties)
+_DUTY_VERBS = (r"manag(?:e|es|ing)|maintain(?:s|ing)?|track(?:s|ing)?|coordinat(?:e|es|ing)|schedul(?:e|es|ing)|"
+               r"process(?:es|ing)?|prepar(?:e|es|ing)|reconcil(?:e|es|ing)|updat(?:e|es|ing)|monitor(?:s|ing)?|"
+               r"compil(?:e|es|ing)|enter(?:s|ing)?|handl(?:e|es|ing)|organiz(?:e|es|ing)|overse(?:e|es|eing)|"
+               r"administer(?:s|ing)?|generat(?:e|es|ing)|verif(?:y|ies|ying)|audit(?:s|ing)?|invoic(?:e|es|ing)|"
+               r"dispatch(?:es|ing)?|record(?:s|ing)?|log(?:s|ging)?|follow(?:s|ing)? up on|respond(?:s|ing)? to")
+_STOP_AT = r"(?=[,.;:()\n•\-–—]|\s+(?:and|or|to|with|for|in|on|across|using|as|by|within|from|that|while|including|per|via|at|against|into|between|throughout|under|over|before|after|when|where|according|so|such)\b|$)"
+_DUTY_RX = re.compile(r"\b(?:" + _DUTY_VERBS + r")\s+((?:[a-z&/'-]+\s+){0,4}?[a-z&/'-]+)" + _STOP_AT, re.I)
+_COMPLIANCE_RX = re.compile(r"\bensur(?:e|es|ing) compliance with\s+((?:[a-z&/'-]+\s+){0,5}?[a-z&/'-]+)" + _STOP_AT.replace(r"and|or|", r"or|"), re.I)
+_LEAD = {"the", "all", "our", "a", "an", "any", "daily", "weekly", "monthly", "various", "multiple", "new", "existing",
+         "accurate", "timely", "company", "company's", "client", "your", "their", "its", "day-to-day", "high", "large",
+         "complex", "internal", "external", "relevant", "appropriate", "necessary", "key", "other", "incoming", "outgoing"}
+_GENERIC = {"tasks", "duties", "projects", "project", "team", "teams", "work", "others", "them", "it", "time", "issues",
+            "relationships", "needs", "requests", "information", "process", "processes", "operations", "activities",
+            "responsibilities", "people", "staff", "business", "day", "role", "things", "efforts", "this", "these",
+            "customers", "clients", "customer", "client", "employees", "members", "partners", "stakeholders", "leadership",
+            "records", "reports", "data", "documents", "documentation", "files", "emails", "calls", "paperwork", "details",
+            "correspondence", "inquiries", "accounts", "systems", "status", "changes", "updates", "deadlines", "schedules"}
+
+
+def _clean_phrase(p):
+    words = [w for w in re.sub(r"[^a-z&/' -]", " ", p.lower()).split()]
+    while words and words[0] in _LEAD:
+        words.pop(0)
+    while words and (words[-1] in _LEAD or words[-1] in STOP):
+        words.pop()
+    if not words or len(words) > 4 or all(w in _GENERIC or w in STOP for w in words):
+        return None
+    if len(words) == 1 and (words[0] in _GENERIC or len(words[0]) < 4):
+        return None
+    return " ".join(words)
+
+
+def duties_for(text):
+    found = []
+    for m in _COMPLIANCE_RX.finditer(text):
+        ph = _clean_phrase(m.group(1))
+        if ph:
+            found.append(re.sub(r"\s+(?:regulations|requirements|standards|laws|rules|policies)$", "", ph) + " compliance")
+    for m in _DUTY_RX.finditer(text):
+        ph = _clean_phrase(m.group(1))
+        if ph and ph not in found and not ph.endswith("compliance"):
+            found.append(ph)
+    return found[:12]
+
+
+def software_keyword(phrase):
+    return phrase if phrase.endswith(("software", "system", "tool")) else f"{phrase} management software"
+
+
+# ------------------------------------------- What-They're-Using-Excel-For Method
+_SHEET = r"(?:spread ?sheets?|excel(?: sheets?| files?)?|google sheets?|a (?:shared |giant |massive |huge )?sheet)"
+_SHEET_VERB = (r"(?:track(?:ing)?|manag(?:e|ing)|keep(?:ing)? track of|log(?:ging)?|plan(?:ning)?|calculat(?:e|ing)|"
+               r"organiz(?:e|ing)|record(?:ing)?|monitor(?:ing)?|schedul(?:e|ing)|budget(?:ing)?|run(?:ning)?|store|storing)")
+_SHEET_RX = [
+    re.compile(_SHEET + r"\s+(?:to|for)\s+(?:" + _SHEET_VERB + r"\s+)?((?:[a-z'/-]+\s+){0,3}?[a-z'/-]+)" + _STOP_AT, re.I),
+    re.compile(r"\b" + _SHEET_VERB + r"\s+((?:[a-z'/-]+\s+){0,3}?[a-z'/-]+)\s+(?:in|on|with|using|via)\s+(?:a |an |our |my |the |one )?(?:big |giant |shared |massive |huge |single )?" + _SHEET, re.I),
+]
+
+
+def spreadsheet_uses_for(text):
+    out = []
+    for rx in _SHEET_RX:
+        for m in rx.finditer(text):
+            ph = _clean_phrase(m.group(1))
+            if ph and ph not in out and ph not in ("everything", "stuff", "data"):
+                out.append(ph)
+    return out[:5]
