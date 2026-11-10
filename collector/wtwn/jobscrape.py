@@ -35,6 +35,7 @@ SITES = {
         "search": "https://www.linkedin.com/jobs/search?keywords={q}&location=United%20States&f_TPR=r86400",
         "link": r"linkedin\.com/jobs/view/",
         "strip_query": True,
+        "delay": [10, 16],  # LinkedIn rate-limits quickly (HTTP 429)
         "desc": [".show-more-less-html__markup", ".description__text", "[class*=description]"],
     },
     "indeed": {
@@ -94,22 +95,32 @@ BLOCK_MARKERS = [
 CARD_JS = r"""
 (linkRe) => {
   const re = new RegExp(linkRe);
+  const keyOf = (h) => { const m = h.match(/[?&]jk=([0-9a-f]+)/); return m ? 'jk:' + m[1] : h.split('#')[0].split('?')[0]; };
+  const isJob = (a) => re.test(a.href);
   const out = [], seen = new Set();
   for (const a of document.querySelectorAll('a[href]')) {
-    const href = a.href;
-    if (!re.test(href)) continue;
-    const key = href.split('#')[0];
-    let title = (a.innerText || a.getAttribute('aria-label') || a.title || '').trim().split('\n')[0].trim();
-    if (!title || title.length < 3 || title.length > 160) continue;
+    if (!isJob(a)) continue;
+    const key = keyOf(a.href);
     if (seen.has(key)) continue;
-    seen.add(key);
+    // The card is the largest ancestor that links to this job and no other.
     let card = a;
-    for (let i = 0; i < 7 && card.parentElement; i++) {
+    while (card.parentElement && card.parentElement !== document.body) {
+      const others = Array.from(card.parentElement.querySelectorAll('a[href]')).some((b) => isJob(b) && keyOf(b.href) !== key);
+      if (others) break;
       card = card.parentElement;
-      if (/^(LI|ARTICLE)$/.test(card.tagName) && (card.innerText || '').length > 20) break;
     }
-    const jk = a.dataset.jk || (key.match(/[?&]jk=([0-9a-f]+)/) || [])[1] || null;
-    out.push({ href: key, title, card: (card.innerText || '').slice(0, 800), jk });
+    const links = Array.from(card.querySelectorAll('a[href]')).filter((b) => isJob(b) && keyOf(b.href) === key);
+    let title = '';
+    for (const l of links) {
+      const t = (l.innerText || '').trim().split('\n')[0].trim();
+      if (t.length >= 3 && t.length <= 160) { title = t; break; }
+    }
+    if (!title) title = (a.getAttribute('aria-label') || a.title || '').trim();
+    title = title.replace(/^View Details for\s+/i, '').replace(/\s*\([0-9a-f]{16,}\)\s*$/i, '').trim();
+    if (!title || title.length < 3 || title.length > 160) continue;
+    seen.add(key);
+    const jk = a.dataset.jk || (a.href.match(/[?&]jk=([0-9a-f]+)/) || [])[1] || null;
+    out.push({ href: a.href.split('#')[0], title, card: (card.innerText || '').slice(0, 800), jk });
   }
   return out;
 }
@@ -149,8 +160,12 @@ def _blocked(text, status):
     return None
 
 
+_NOISE = re.compile(r"^(?:new|easy apply|apply now|save|saved|promoted|actively hiring|\d+\s*(?:hours?|days?|minutes?) ago|just posted|today|view details.*)$", re.I)
+
+
 def _card_fields(card, title):
-    lines = [l.strip() for l in card.split("\n") if l.strip() and l.strip() != title]
+    lines = [l.strip() for l in card.split("\n")
+             if l.strip() and l.strip().lower() != title.lower() and not _NOISE.match(l.strip()) and title.lower() not in l.lower()]
     return (lines[0] if lines else ""), (lines[1] if len(lines) > 1 else "")
 
 
@@ -190,8 +205,8 @@ class Scraper:
         self.cfg, self.signals, self.verbose = bcfg, signals, verbose
         self.deadline = time.time() + bcfg.get("max_minutes", 25) * 60
 
-    async def pause(self):
-        lo, hi = self.cfg.get("delay_seconds", [3, 6])
+    async def pause(self, recipe=None):
+        lo, hi = (recipe or {}).get("delay") or self.cfg.get("delay_seconds", [3, 6])
         await asyncio.sleep(random.uniform(lo, hi))
 
     async def goto(self, page, url):
@@ -216,6 +231,7 @@ class Scraper:
         label = recipe["label"]
         st = {"ok": True, "count": 0, "searches": 0, "label": label}
         items = []
+        details_blocked = False
         ctx = await browser.new_context(locale="en-US", viewport={"width": 1366, "height": 900})
         page = await ctx.new_page()
         try:
@@ -242,7 +258,7 @@ class Scraper:
                                               c, q, self.signals))
                     if self.verbose:
                         log(f"  [{key}] {q!r}: {len(cards)} cards; first: {[c.split(chr(10))[0] for c in cards[:3]]}")
-                    await self.pause()
+                    await self.pause(recipe)
                     continue
 
                 cards = (await page.evaluate(CARD_JS, recipe["link"]))[: self.cfg.get("results_per_search", 15)]
@@ -255,14 +271,15 @@ class Scraper:
                     detail = recipe.get("detail", "").format(jk=c["jk"]) if recipe.get("detail") and c["jk"] else c["href"]
                     detail = _strip(detail, recipe.get("strip_query"))
                     text = c["card"]
-                    if i < self.cfg.get("details_per_search", 5) and time.time() < self.deadline:
-                        await self.pause()
+                    if i < self.cfg.get("details_per_search", 5) and time.time() < self.deadline and not details_blocked:
+                        await self.pause(recipe)
                         try:
                             dstatus = await self.goto(page, detail)
                             dbody = await page.evaluate("() => document.title + '\\n' + (document.body ? document.body.innerText : '')")
                             why = _blocked(dbody, dstatus)
-                            if why:
-                                st["note"] = f"descriptions blocked ({why}); using card text"
+                            if why:  # back off: no more description pages from this site today
+                                details_blocked = True
+                                st["note"] = f"descriptions blocked after {i} ({why}); using card text for the rest"
                                 if self.verbose:
                                     log(f"  [{key}] detail blocked ({why}) {detail}")
                             else:
@@ -274,7 +291,7 @@ class Scraper:
                                 log(f"  [{key}] detail error {detail}: {e}")
                     jid = c["jk"] or re.sub(r"\W+", "-", urlsplit(detail).path.strip("/"))[-80:]
                     items.append(job_item(key, label, jid, detail, c["title"], company, location, text, q, self.signals))
-                await self.pause()
+                await self.pause(recipe)
         except Exception as e:  # noqa: BLE001
             st.update(ok=False, error=f"{type(e).__name__}: {str(e)[:200]}")
         finally:

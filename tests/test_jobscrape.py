@@ -37,13 +37,16 @@ class ScrapeTest(unittest.TestCase):
         out = asyncio.run(jobscrape.run(cfg, only=["fake"]))
         srv.shutdown()
         items = {it["title"]: it for it in out["items"]}
-        self.assertEqual(set(items), {"Service Advisor", "Office Manager"})
+        self.assertEqual(set(items), {"Service Advisor", "Office Manager", "Billing Analyst", "Dispatcher"})
+        self.assertEqual(items["Billing Analyst"]["channel"], "Fake · Acme Freight")
+        self.assertEqual(items["Dispatcher"]["channel"], "Fake · Road Co")
         adv = items["Service Advisor"]
         self.assertIn("warranty claims", adv["text"])
         self.assertEqual(adv["url"], base + "/job/101")
         self.assertEqual(adv["channel"], "Fake · Metro Motors")
         self.assertGreaterEqual(adv["manual_hits"], 2)
         self.assertIn("blocked", out["sites"]["fake"].get("note", ""))  # 102 is a CAPTCHA page
+        self.assertNotIn("not found", items["Billing Analyst"]["text"].lower(), "no more detail pages after a block")
         self.assertEqual(items["Office Manager"]["text"].split("\n")[0], "Office Manager")  # fell back to card text
 
 
