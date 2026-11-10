@@ -6,6 +6,7 @@ Raw item shape:
 kind is one of: discussion | review | feature_request | job
 """
 import html
+import json
 import os
 import re
 import time
@@ -512,6 +513,21 @@ def jobs(cfg, since, http, status):
     return _ok(status, name, items, note)
 
 
+# ------------------------------------------------------------- Job boards
+def job_boards(cfg, since, http, status):
+    """Reads what jobscrape.py (headless Playwright) gathered earlier in the same run."""
+    name = "job_boards"
+    path = os.environ.get("JOBS_SCRAPE_FILE")
+    if not path or not os.path.exists(path):
+        return _ok(status, name, [], "browser scrape didn't run (see the 'Scrape job boards' step)")
+    data = json.loads(open(path, encoding="utf-8").read())
+    for site, st in data.get("sites", {}).items():
+        status[f"{name}:{site}"] = {k: v for k, v in st.items() if k in ("ok", "count", "error", "note", "seconds")}
+    items = data.get("items", [])
+    good = [st.get("label", k) for k, st in data.get("sites", {}).items() if st.get("count")]
+    return _ok(status, name, items, f"searches: {', '.join(data.get('queries', []))}; results from: {', '.join(good) or 'none'}")
+
+
 ALL = {
     "hackernews": hackernews,
     "reddit": reddit,
@@ -521,4 +537,5 @@ ALL = {
     "shopify_apps": shopify_apps,
     "wordpress_plugins": wordpress_plugins,
     "jobs": jobs,
+    "job_boards": job_boards,
 }

@@ -250,5 +250,28 @@
     "_comment": "Only used when the ANTHROPIC_API_KEY secret is set. Groups items into named problems and writes plain-English summaries.",
     "model": "claude-opus-5-5",
     "max_items_sent": 180
+  },
+  "job_boards": {
+    "_comment": "Headless-browser scrape of the big job boards (collector/wtwn/jobscrape.py). Each day it runs a few searches from jobs.industries + jobs.remotive_searches, rotating so every industry comes up every few days. Sites that show a CAPTCHA or block page are marked blocked for the day; nothing tries to get around them. Set a site to false to stop visiting it.",
+    "enabled": true,
+    "sites": {
+      "linkedin": true,
+      "indeed": true,
+      "ziprecruiter": true,
+      "glassdoor": true,
+      "monster": true,
+      "dice": true,
+      "usajobs": true,
+      "google": true
+    },
+    "queries_per_day": 4,
+    "results_per_search": 15,
+    "details_per_search": 5,
+    "delay_seconds": [
+      3,
+      6
+    ],
+    "max_minutes": 25,
+    "serpapi_searches_per_day": 3
   }
 }

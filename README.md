@@ -20,10 +20,33 @@ Search engines are told not to index it (`noindex` meta tags and `robots.txt`).
 | Shopify App Store | 1–3★ reviews of the **most popular apps in each category** (found fresh each day) | Merchants already paying and still unhappy |
 | WordPress plugins | 1–3★ reviews of the 25 most popular plugins | Same, for site owners |
 | GitHub | Recently opened feature requests with many 👍 | Unmet needs inside tools people already use |
+| Job boards via headless browser: LinkedIn, Indeed, ZipRecruiter, Glassdoor, Monster, Dice, USAJOBS, Google Jobs | Full job descriptions for a few rotating industry searches a day; their listed duties | The Job Search Method at scale (see below) |
 | Job posts (The Muse, Remotive, RemoteOK, optional Adzuna by industry) | The duties listed in each post, plus posts describing data entry, reconciliation, chasing, copy-paste | If a company pays a person to do it, software might do it cheaper |
 
 3-star reviews are kept only when they name a gap (a missing feature, the price, usability or integrations),
 because "good, but…" reviews are often where the clearest gaps are.
+
+### Job boards (headless browser)
+
+`collector/wtwn/jobscrape.py` runs in the daily workflow before the main collector. Each day it takes 4
+searches from `jobs.industries` + `jobs.remotive_searches` in `collector/config.json` (rotating, so every
+industry comes round every few days), opens each enabled board, reads up to 15 result cards and opens the top
+5 postings for the full description. With pauses between pages it takes 10–25 minutes.
+
+It keeps volume low, uses an ordinary headless browser, and does not try to get past bot protection: if a site
+shows a CAPTCHA, a login wall or a block page, that site is marked failed for the day under **Sources** and
+skipped. LinkedIn, Indeed, Glassdoor, ZipRecruiter and Monster forbid automated access in their terms and
+often block cloud servers, so expect some of them to fail on some or all days. Turn any site off under
+`job_boards.sites` in the config. Two sites have proper APIs that are used instead of the browser when
+their keys are set:
+
+- **USAJOBS**: free key from developer.usajobs.gov. Save `USAJOBS_API_KEY` and `USAJOBS_EMAIL` (the email you
+  registered with) as repository secrets. Its "major duties" field is ideal for this.
+- **Google Jobs**: Google blocks automated browsers; SerpApi (serpapi.com, free tier) returns Google Jobs
+  results. Save `SERPAPI_KEY`. Uses 3 searches a day.
+
+To see what each site returns to GitHub's servers, run the **Job boards test** workflow (Actions tab); it does
+one search per site with a detailed log and saves nothing.
 
 ### The idea-finding methods it automates
 
@@ -83,6 +106,8 @@ They're labelled `SaaS fit: low` so you can filter them in or out.
 | `ANTHROPIC_API_KEY` | Claude groups the day's items into named problems and writes who has the problem, why existing tools fail, and a solution idea. It also reuses names from earlier days so trends line up. Roughly one request per day. Without it, problems are grouped by shared phrases. |
 | `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` | Reddit often blocks anonymous requests from cloud servers. Create a free "script" app at reddit.com/prefs/apps and add its id and secret to make the Reddit source reliable. |
 | `ADZUNA_APP_ID` / `ADZUNA_APP_KEY` | Job searches by industry (car dealerships, dental offices, property management…, see `jobs.industries` in the config), the core of the Job Search Method. A free key is available at developer.adzuna.com. Without it, job posts come from The Muse and remote job boards only. |
+| `USAJOBS_API_KEY` / `USAJOBS_EMAIL` | Official USAJOBS API instead of the browser (more reliable, includes listed duties). |
+| `SERPAPI_KEY` | Google Jobs results via SerpApi (Google blocks automated browsers). |
 | `STACKEXCHANGE_KEY` | Raises the Stack Exchange quota (optional; the default is enough). |
 
 ## Running locally
@@ -119,6 +144,7 @@ To preview the site, serve `docs/` (for example `python -m http.server -d docs`)
 collector/            Python daily job
   config.json         sources, phrases, thresholds
   wtwn/sources.py     one collector per source (each fails independently)
+  wtwn/jobscrape.py   headless-browser job board scrape (runs first, feeds sources.job_boards)
   wtwn/analyze.py     pain score, themes, SaaS fit, complaint types, job duties, spreadsheet uses, clusters
   wtwn/ai.py          optional Claude grouping
   wtwn/run.py         orchestration + history/trend index

@@ -18,8 +18,11 @@
   const SOURCE_LABEL = {
     hackernews: "Hacker News", reddit: "Reddit", stackexchange: "Stack Exchange", github: "GitHub issues",
     app_store: "App Store", shopify_apps: "Shopify apps", wordpress_plugins: "WordPress plugins", jobs: "Job posts", fixture: "Fixture",
+    job_boards: "Job boards (browser)",
   };
-  const srcLabel = (s) => SOURCE_LABEL[s] || s;
+  const BOARD_LABEL = { linkedin: "LinkedIn", indeed: "Indeed", ziprecruiter: "ZipRecruiter", glassdoor: "Glassdoor",
+    monster: "Monster", dice: "Dice", usajobs: "USAJOBS", google: "Google Jobs" };
+  const srcLabel = (s) => SOURCE_LABEL[s] || (s.startsWith("job_boards:") ? `↳ ${BOARD_LABEL[s.slice(11)] || s.slice(11)}` : s);
   const fitBadge = (f) => `<span class="fit fit-${esc(f || "low")}" title="How well a software product could address this">SaaS fit: ${esc(f || "?")}</span>`;
   const COMPLAINT_LABEL = { missing_feature: "Missing feature", hard_to_use: "Hard to use", too_expensive: "Too expensive",
     unreliable: "Unreliable", integrations: "Integrations", bad_support: "Bad support", slow: "Slow", other: "Other" };
@@ -514,7 +517,7 @@
       </ul>
       <h2>The three classic methods, automated</h2>
       <ul>
-        <li><strong>Job Search Method</strong>: job posts across industries are read for their listed duties (“schedule service appointments”, “ensure compliance with safety regulations”), each turned into a “… management software” search. See <em>Idea mines</em>.</li>
+        <li><strong>Job Search Method</strong>: every day a headless browser runs a few rotating industry searches on LinkedIn, Indeed, ZipRecruiter, Glassdoor, Monster, Dice, USAJOBS and Google Jobs (plus The Muse and remote boards), opens the top postings, and reads their listed duties. Sites that block automated browsers are shown as failed under Sources for that day. Job posts across industries are read for their listed duties (“schedule service appointments”, “ensure compliance with safety regulations”), each turned into a “… management software” search. See <em>Idea mines</em>.</li>
         <li><strong>App Store Method</strong>: each day the most popular apps per category are found fresh (top-grossing Business/Productivity/Finance iPhone apps, popular Shopify apps per category, popular WordPress plugins) and their 1–3★ reviews are mined for missing features, usability, price and integration complaints.</li>
         <li><strong>What-They're-Using-Excel-For Method</strong>: phrases like “we track X in a spreadsheet” are collected and counted.</li>
         <li><strong>Review mining with AI</strong>: with an Anthropic key, Claude groups the day's evidence into problems and writes who has them, why tools fail them, whether they cost time or money, and a 3-feature MVP.</li>
