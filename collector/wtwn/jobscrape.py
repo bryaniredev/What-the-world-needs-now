@@ -160,7 +160,7 @@ def _blocked(text, status):
     return None
 
 
-_NOISE = re.compile(r"^(?:new|easy apply|apply now|save|saved|promoted|actively hiring|\d+\s*(?:hours?|days?|minutes?) ago|just posted|today|view details.*)$", re.I)
+_NOISE = re.compile(r"^(?:new|easy apply|apply now|apply|save|saved|save job|share|print|promoted|actively hiring|\d+\s*(?:hours?|days?|minutes?) ago|just posted|today|view details.*)$", re.I)
 
 
 def _card_fields(card, title):
