@@ -1,79 +1,54 @@
-"""Temporary: confirm response shapes (prints field names and counts only)."""
-import json, time
+"""Temporary: settle Arctic Shift parameters and Discourse search form."""
+import time
 from datetime import datetime, timedelta, timezone
 import requests
-
 UA = {"User-Agent": "what-the-world-needs-now/2.0 (weekly unmet-needs research)"}
 week = datetime.now(timezone.utc) - timedelta(days=7)
 ep, iso = int(week.timestamp()), week.strftime("%Y-%m-%d")
-
-def get(name, url):
+B = "https://arctic-shift.photon-reddit.com/api/posts/search?subreddit=Dentistry"
+for name, q in [
+    ("plain", f"&after={iso}&limit=100"),
+    ("sort", f"&after={iso}&limit=100&sort=desc"),
+    ("fields basic", f"&after={iso}&limit=100&fields=id,title,selftext,created_utc,subreddit,score,num_comments,author"),
+    ("fields +flair", f"&after={iso}&limit=100&fields=id,title,selftext,created_utc,subreddit,score,num_comments,link_flair_text"),
+    ("fields +permalink", f"&after={iso}&limit=100&fields=id,title,permalink"),
+    ("epoch after", f"&after={ep}&limit=10&fields=id,title,created_utc"),
+]:
+    r = requests.get(B + q, headers=UA, timeout=30)
     try:
-        r = requests.get(url, headers=UA, timeout=30)
-        print(f"\n== {name}: HTTP {r.status_code}, {len(r.text)}b, ratelimit={ {k:v for k,v in r.headers.items() if 'rate' in k.lower()} }")
-        return r
-    except Exception as e:
-        print(f"\n== {name}: ERR {e}")
+        d = r.json().get("data")
+    except Exception:
+        d = None
+    n = len(d) if isinstance(d, list) else None
+    info = ""
+    if n:
+        ts = [x.get("created_utc") for x in d]
+        info = f"first={datetime.fromtimestamp(ts[0], timezone.utc):%m-%d %H:%M} last={datetime.fromtimestamp(ts[-1], timezone.utc):%m-%d %H:%M} keys={sorted(d[0].keys())[:14]} scores={[x.get('score') for x in d[:8]]} ncom={[x.get('num_comments') for x in d[:8]]}"
+    print(f"arctic {name:18} HTTP {r.status_code} n={n} rl={r.headers.get('x-ratelimit-remaining')} {info} {'' if r.ok else r.text[:200]}")
+    time.sleep(1.5)
+# paging forward with after=last created_utc (default sort appears ascending?)
+r = requests.get(B + f"&after={iso}&limit=100&fields=id,created_utc", headers=UA, timeout=30); d = r.json()["data"]
+if d:
+    nxt = max(x["created_utc"] for x in d)
+    r2 = requests.get(B + f"&after={nxt}&limit=100&fields=id,created_utc", headers=UA, timeout=30)
+    print("arctic page2 via after=max:", r2.status_code, len(r2.json().get("data") or []), "overlap", len({x['id'] for x in d} & {x['id'] for x in (r2.json().get('data') or [])}))
+big = requests.get(f"https://arctic-shift.photon-reddit.com/api/posts/search?subreddit=smallbusiness&after={iso}&limit=100&fields=id,created_utc,selftext,title", headers=UA, timeout=30)
+bd = big.json().get("data") or []
+print("smallbusiness:", big.status_code, len(bd), "removed/empty selftext:", sum(1 for x in bd if x.get("selftext") in ("[removed]", "[deleted]", "", None)), "span hours:", round((max(x['created_utc'] for x in bd) - min(x['created_utc'] for x in bd))/3600, 1) if bd else None)
 
-def shape(o, depth=0, maxd=2):
-    if isinstance(o, dict):
-        return {k: (shape(v, depth+1, maxd) if depth < maxd else type(v).__name__) for k, v in list(o.items())[:40]}
-    if isinstance(o, list):
-        return [f"len={len(o)}", shape(o[0], depth+1, maxd) if o else None]
-    if isinstance(o, str):
-        return f"str[{len(o)}]"
-    return o if isinstance(o, (int, float, bool)) or o is None else type(o).__name__
-
-F = "id,title,selftext,created_utc,subreddit,score,num_comments,permalink,link_flair_text,removed_by_category,author"
-r = get("arctic fields", f"https://arctic-shift.photon-reddit.com/api/posts/search?subreddit=Dentistry&after={iso}&limit=100&sort=desc&fields={F}")
-if r is not None and r.ok:
-    d = r.json()["data"]; print(len(d), shape(d[0]) if d else None)
-    if d:
-        last = d[-1]["created_utc"]
-        r2 = get("arctic page2", f"https://arctic-shift.photon-reddit.com/api/posts/search?subreddit=Dentistry&after={iso}&before={last}&limit=100&sort=desc&fields={F}")
-        if r2 is not None and r2.ok: print("page2", len(r2.json()["data"]))
-time.sleep(1)
-r = get("arctic big sub", f"https://arctic-shift.photon-reddit.com/api/posts/search?subreddit=smallbusiness&after={iso}&limit=100&sort=desc&fields={F}")
-if r is not None and r.ok:
-    d = r.json()["data"]; print(len(d), "oldest", datetime.fromtimestamp(d[-1]["created_utc"], timezone.utc) if d else None, "scores", [x.get("score") for x in d[:15]], "ncomm", [x.get("num_comments") for x in d[:15]])
-time.sleep(1)
-r = get("reddit rss search", "https://www.reddit.com/r/Dentistry/search.rss?q=software+OR+app&restrict_sr=1&sort=new&t=week&limit=100")
-if r is not None: print(r.text.count("<entry>"), r.text[:200].replace("\n"," "))
-time.sleep(2)
-r = get("reddit rss new 100", "https://www.reddit.com/r/Dentistry/new/.rss?limit=100")
-if r is not None: print(r.text.count("<entry>"))
-time.sleep(1)
-r = get("freelancer", f"https://www.freelancer.com/api/projects/0.1/projects/active/?query=automate&limit=5&full_description=true&job_details=true&from_time={ep}&languages[]=en&sort_field=time_updated")
-if r is not None and r.ok:
-    j = r.json()["result"]; print("total", j.get("total_count"), shape(j["projects"][0]) if j["projects"] else None)
-time.sleep(1)
-r = get("bsky", f"https://api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=%22is%20there%20an%20app%20that%22&limit=5&sort=latest&lang=en&since={iso}T00:00:00Z")
-if r is not None and r.ok:
-    j = r.json(); print("hitsTotal", j.get("hitsTotal"), "cursor", j.get("cursor"), shape(j["posts"][0], maxd=1) if j["posts"] else None)
-time.sleep(1)
-for host in ["community.shopify.com", "community.spiceworks.com"]:
-    r = get(f"discourse {host}", f"https://{host}/search.json?q=%22is%20there%20an%20app%22%20after%3A{iso}%20in%3Afirst%20order%3Alatest")
-    if r is not None and r.ok:
-        j = r.json(); print(shape({"posts": j.get("posts"), "topics": j.get("topics"), "g": j.get("grouped_search_result")}, maxd=2))
-        if j.get("topics"):
-            t = j["topics"][0]
-            r3 = get("topic", f"https://{host}/t/{t['id']}.json")
-            if r3 is not None and r3.ok:
-                p = r3.json()["post_stream"]["posts"][0]; print("first post keys", list(p.keys())[:25], "cooked len", len(p.get("cooked","")))
-    time.sleep(1)
-for host in ["community.n8n.io", "forum.obsidian.md", "community.airtable.com", "forum.manager.io", "discuss.erpnext.com", "community.quickfile.co.uk", "forum.asana.com", "community.monday.com", "community.glideapps.com", "community.retool.com", "forum.squarespace.com", "community.etsy.com", "community.wolfram.com", "community.jobber.com", "forum.zettelkasten.de", "community.smartthings.com", "talk.tidbits.com", "forum.ynab.com", "discourse.practicalecommerce.com", "community.klaviyo.com", "community.zapier.com", "forums.sellercentral.amazon.com", "community.openemr.org", "community.frappe.io", "forum.invoiceninja.com", "community.akaunting.com", "discuss.grocy.info", "forum.paperless.com", "community.revolut.com", "community.wise.com"]:
-    try:
-        r = requests.get(f"https://{host}/search.json?q=%22is%20there%22%20after%3A{iso}", headers=UA, timeout=15)
-        n = None
-        try: n = len(r.json().get("topics") or [])
-        except Exception: pass
-        print(f"   {host:38} HTTP {r.status_code} topics={n}")
-    except Exception as e:
-        print(f"   {host:38} ERR {type(e).__name__}")
-    time.sleep(0.5)
-r = get("hn ask need", f"https://hn.algolia.com/api/v1/search_by_date?query=%22is%20there%20a%20tool%22&tags=ask_hn&numericFilters=created_at_i%3E{ep}&hitsPerPage=20")
-if r is not None and r.ok: print("hits", len(r.json()["hits"]))
-r = get("hn idea threads", f"https://hn.algolia.com/api/v1/search?query=%22what%20problem%22&tags=ask_hn&numericFilters=created_at_i%3E{ep-86400*120},num_comments%3E15&hitsPerPage=20")
-if r is not None and r.ok: print("hits", len(r.json()["hits"]), [h["title"][:60] for h in r.json()["hits"][:6]])
-r = get("se softwarerecs week", f"https://api.stackexchange.com/2.3/questions?order=desc&sort=creation&site=softwarerecs&fromdate={ep}&pagesize=100")
-if r is not None and r.ok: print("items", len(r.json()["items"]))
+for host, q in [("community.shopify.com", "is there an app that"), ("community.shopify.com", "looking for an app"), ("community.spiceworks.com", "looking for software"), ("talk.macpowerusers.com", "is there an app"), ("community.make.com", "is there a way to automate")]:
+    r = requests.get(f"https://{host}/search.json", params={"q": f"{q} after:{iso} order:latest"}, headers=UA, timeout=30)
+    j = r.json() if r.ok else {}
+    posts, topics = j.get("posts") or [], j.get("topics") or []
+    firsts = [p for p in posts if p.get("post_number") == 1]
+    print(f"discourse {host} [{q}] HTTP {r.status_code} posts={len(posts)} first-posts={len(firsts)} topics={len(topics)} post keys={sorted(posts[0].keys()) if posts else None} topic keys={sorted(topics[0].keys())[:20] if topics else None} more={j.get('grouped_search_result',{}).get('more_full_page_results')}")
+    if firsts:
+        t = requests.get(f"https://{host}/t/{firsts[0]['topic_id']}.json", headers=UA, timeout=30)
+        print("   topic fetch", t.status_code, "cooked", len(t.json()["post_stream"]["posts"][0].get("cooked", "")) if t.ok else t.text[:100], "views", t.json().get("views") if t.ok else None, "like", t.json().get("like_count") if t.ok else None)
+    time.sleep(2)
+r = requests.get(f"https://hn.algolia.com/api/v1/search_by_date?tags=ask_hn&numericFilters=created_at_i%3E{ep}&hitsPerPage=1000", headers=UA, timeout=30)
+print("hn ask_hn this week:", r.status_code, len(r.json().get("hits", [])), "nbHits", r.json().get("nbHits"))
+r = requests.get(f"https://hn.algolia.com/api/v1/search_by_date?tags=ask_hn&numericFilters=created_at_i%3E{ep-86400*200},num_comments%3E30&hitsPerPage=1000", headers=UA, timeout=30)
+print("hn ask_hn 200d >30 comments:", r.status_code, len(r.json().get("hits", [])), "nbHits", r.json().get("nbHits"))
+r = requests.get("https://www.reddit.com/r/Dentistry/new/.rss?limit=100", headers=UA, timeout=30)
+print("reddit rss:", r.status_code, r.text.count("<entry>"), {k: v for k, v in r.headers.items() if "ratelimit" in k.lower()})
