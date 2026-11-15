@@ -1,76 +1,241 @@
-"""Heuristic analysis: pain score, themes, SaaS fit, keywords and clusters.
+"""Turns raw posts into leads: keeps only posts that state an unmet need, pulls out
+the sentence that states it, and tags each with a niche, a theme and a SaaS fit.
 
-Works with no API key. When ANTHROPIC_API_KEY is set, ai.py refines the
-clusters into named problems; these heuristics still supply the trends.
+Works with no API key. With ANTHROPIC_API_KEY set, ai.py turns the kept items into
+named problems; everything here still supplies the filtering and the trends.
 """
 import math
 import re
 from collections import Counter, defaultdict
 
-# (regex, weight, label). Phrases people use when a need is unmet.
-SIGNALS = [
-    (r"\bi(?:'d| would) (?:happily |gladly )?pay\b", 5, "would pay"),
-    (r"\bshut up and take my money\b", 5, "would pay"),
-    (r"\bi wish (?:there (?:was|were)|someone would|i could|it (?:had|would))\b", 4, "wishes it existed"),
-    (r"\bis there (?:a|an|any) (?:tool|app|software|service|way|plugin|extension|saas)\b", 4, "asking for a tool"),
-    (r"\b(?:does anyone|anyone) (?:know|recommend|use) (?:a|an|of a|any)\b", 2, "asking for a tool"),
-    (r"\blooking for (?:a |an )?(?:tool|app|software|service|solution|platform)\b", 3, "asking for a tool"),
-    (r"\bwhy is there no\b|\bwhy (?:isn't|is not) there\b|\bstill no (?:good )?way\b|\bno good (?:way|tool|solution)\b", 4, "nothing exists"),
-    (r"\bhow do (?:you|people|i) (?:even )?(?:handle|manage|deal with|keep track)\b", 2, "workflow question"),
-    (r"\bmanual(?:ly)?\b|\bby hand\b|\bcopy[- ](?:and[- ])?paste\b", 2, "manual work"),
-    (r"\bspreadsheet|excel|google sheets?\b", 1, "spreadsheet workaround"),
-    (r"\bworkaround|duct tape|hack(?:ed|y) together|cobbled\b", 2, "workaround"),
-    (r"\bwaste[sd]? (?:hours|so much time|time)|takes (?:forever|hours)|time[- ]consuming|tedious\b", 3, "time sink"),
-    (r"\bfrustrat\w*|annoying|nightmare|hate|painful|pain in the|drives me (?:crazy|nuts)|fed up\b", 1, "frustration"),
-    (r"\btoo expensive|overpriced|price (?:hike|increase)|can't afford|costs? (?:a fortune|too much)\b", 3, "too expensive"),
-    (r"\balternative to\b|\bswitch(?:ing|ed)? (?:away )?from\b|\bcancel(?:led|ing)? (?:my )?subscription\b", 3, "looking to switch"),
-    (r"\bmissing (?:a )?(?:feature|basic)|doesn't (?:support|have|allow|let)|does not (?:support|have|allow)|no option to|can't even\b", 2, "missing feature"),
-    (r"\bfeature request\b|\bplease add\b|\bwould love (?:to see|if)\b", 2, "feature request"),
-    (r"\bbuggy|keeps crashing|crash(?:es|ed)|broken|stopped working|unusable\b", 1, "unreliable"),
-    (r"\bcustomer (?:service|support) (?:is|was) (?:terrible|awful|non-?existent)|no response from support\b", 2, "bad support"),
-]
-_SIG = [(re.compile(p, re.I), w, l) for p, w, l in SIGNALS]
+TOOL = (r"(?:tool|tools|app|apps|software|program|service|platform|plugin|plug-in|extension|system|solution|"
+        r"product|website|crm|saas|add-?on|integration|template|script|bot|database|tracker|portal)")
+GAP = r"[^.?!\n]{0,60}?"
 
-# theme -> keywords. Order matters only for display.
+# (key, label, weight, pattern). A post needs STRONG weight >= 3 to be kept.
+STRONG = [
+    ("pay", "would pay for it", 5,
+     r"\b(?:i|we)(?:'d| would|'ll| will) (?:happily |gladly |literally |definitely |totally |absolutely |honestly )?pay\b"
+     r"|\b(?:willing|happy|glad) to pay\b|\btake my money\b|\bwould pay (?:good money|for)\b|\bworth paying for\b"),
+    ("ask_tool", "asking for a tool", 4,
+     rf"\b(?:is|are) there (?:a|an|any|some)\b{GAP}\b{TOOL}\b"
+     rf"|\b(?:does|do|has|have) (?:anyone|anybody|any of you|you guys|y'all)(?: here)? (?:know|use|have|recommend|found|tried)\b{GAP}\b{TOOL}\b"
+     rf"|\b(?:anyone|anybody)(?: here)? (?:know|use|using|recommend|found|have)\b{GAP}\b{TOOL}\b"
+     rf"|\blooking for (?:a |an |some |any |the best |good |decent )?{GAP}\b{TOOL}\b"
+     rf"|\b(?:what|which)\b[^.?!\n]{{0,30}}?\b{TOOL}\b[^.?!\n]{{0,40}}?\b(?:do you|are you|does everyone|do y'all|do you all|do you guys|would you|should i|should we|is best|are people|do people|do other)\b"
+     rf"|\b(?:recommend|recommendation|recommendations|suggestions?|advice)\b[^.?!\n]{{0,40}}?\b{TOOL}\b"
+     rf"|\b{TOOL}\b[^.?!\n]{{0,25}}\b(?:recommendations?|suggestions?)\b"
+     rf"|\bneed (?:a|an|some)\b[^.?!\n]{{0,40}}?\b{TOOL}\b (?:that|to|for|which)\b"),
+    ("wish", "wishes it existed", 4,
+     r"\bi (?:really |just |so |honestly )?wish (?:there (?:was|were|is)|someone would|somebody would|i could|we could|it (?:was|were) possible|i had|we had)\b"
+     r"|\bif only there (?:was|were)\b|\bsomeone (?:should|needs to|please) (?:build|make|create|invent)\b"
+     r"|\bwhy (?:is there no|isn't there|isnt there|hasn't anyone|has no ?one|hasn't someone|does no ?one|doesn't anyone)\b"
+     r"|\bdoes (?:this|that|something like (?:this|that)|such a (?:thing|tool|app)|anything like (?:this|that)) (?:even |already |actually )?exist\b"),
+    ("nothing_fits", "nothing on the market fits", 4,
+     r"\b(?:nothing|none of (?:them|these|those)|no (?:tool|app|software|product|solution|system)s?) (?:seems? to |really |quite |that |out there )*(?:fits?|works?|does (?:this|that|what|it)|exists?|handles?|supports?|do(?:es)? what)\b"
+     r"|\b(?:tried|looked at|tested|demoed|trialed) (?:everything|them all|a (?:bunch|ton|dozen|lot|few)|so many|several|\d+ (?:different )?(?:apps|tools|crms|platforms|options|products|systems))\b"
+     r"|\b(?:can't|cannot|couldn't|could not|haven't been able to|unable to|struggling to) find (?:a|an|any|anything|one|something)\b"),
+    ("better_way", "there must be a better way", 3,
+     r"\bthere (?:has|must|have|'s got|has got) to be (?:a|an) (?:better|easier|faster|simpler) way\b"
+     r"|\b(?:a|any) (?:better|easier|faster|more efficient|smarter) way (?:to|of)\b"),
+    ("how_handle", "asking how others cope", 3,
+     r"\bhow (?:do|does|are|did|is) (?:you|y'all|you all|you guys|everyone|everybody|other \w+(?: \w+)?|others|people|most \w+|your (?:team|office|shop|practice|company|firm|crew)) "
+     r"(?:all |guys |even |actually |currently |folks )*(?:handle|handling|manage|managing|deal with|dealing with|keep track of|keeping track of|track|tracking|"
+     r"organi[sz]e|organi[sz]ing|stay on top of|staying on top of|automate|automating|streamline|bill|invoice|schedule|scheduling|collect|store|document|price|quote)\b"),
+    ("manual", "doing it by hand", 3, None),         # computed: manual work + pain
+    ("spreadsheet", "outgrown a spreadsheet", 3, None),  # computed: spreadsheet + pain
+    ("switch", "wants to leave a product", 3,
+     r"(?i:alternatives? to|replacement for|substitute for|switch(?:ing|ed)? (?:away )?from|mov(?:e|ing|ed) (?:away )?from|migrat(?:e|ing|ed) (?:away )?from) (?=[A-Z0-9])"),
+    ("ask_way", "asking if it's possible", 2,
+     r"\bis there (?:a|any|an easy|an easier|a better|some|a simple) way to\b|\bany way to\b"),
+    ("time_sink", "costs hours", 2,
+     r"\b(?:spend|spending|spent|wastes?|wasting|wasted|takes? (?:me|us)|taking (?:me|us)|eats? up|lose|losing)\b[^.?!\n]{0,40}\b(?:hours|all day|forever|half (?:my|the|a) day|whole day|entire day|days|weekends?)\b"),
+]
+WEAK = [
+    ("frustration", "frustrated", 1,
+     r"\bfrustrat|\bnightmare\b|\bpain in the\b|\bdriv(?:es|ing) me (?:crazy|nuts|insane)\b|\bfed up\b|\bsick of\b|\bso annoying\b|\bhate (?:that|how|having|doing|when)\b"),
+    ("too_expensive", "too expensive", 1,
+     r"\btoo expensive\b|\boverpriced\b|\bprice (?:hike|increase)\b|\bcan't afford\b|\bcosts? (?:a fortune|too much)\b|\bpric(?:ed|ing) (?:us|me) out\b"),
+]
+_STRONG = [(k, l, w, re.compile(p, re.I) if p and "(?i:" not in p else (re.compile(p) if p else None)) for k, l, w, p in STRONG]
+_WEAK = [(k, l, w, re.compile(p, re.I)) for k, l, w, p in WEAK]
+LABEL = {k: l for k, l, _, _ in STRONG + WEAK}
+LABEL.update({"gig": "paying for custom work", "idea_thread": "answer to “what problem needs solving?”"})
+
+_MANUAL = re.compile(r"\bmanual(?:ly)?\b|\bby hand\b|\bcopy(?:ing)?(?: and |[- ]and[- ]|/| ?& ?| )past(?:e|ing)\b|\bdata entry\b|\bre-?(?:enter|type|key)(?:ing)?\b"
+                     r"|\bdouble[- ]entry\b|\bpen and paper\b|\bpaper (?:forms?|files?|records?|logs?|notes|tickets|invoices)\b|\bwhiteboard\b|\bsticky notes\b|\bpost-?its?\b", re.I)
+_SHEET = re.compile(r"\bspread ?sheets?\b|\bexcel\b|\bgoogle sheets?\b", re.I)
+_PAIN = re.compile(r"\bhours\b|\bevery (?:single )?(?:day|week|month|time)\b|\btedious\b|\btime[- ]consuming\b|\bwast(?:e|ing)\b|\bnightmare\b|\b(?:sick|tired) of\b|\bhate\b"
+                   r"|\bkilling (?:me|us)\b|\bdrowning\b|\boverwhelm|\bburn(?:ed|t|ing)? out\b|\bpainful\b|\ba mess\b|\bmessy\b|\berror[- ]prone\b|\bmistakes\b"
+                   r"|\bfalls? through the cracks\b|\bslips? through\b|\bcan't keep up\b|\bcannot keep up\b|\bunmanageable\b|\bout of hand\b|\boutgr(?:ew|own|owing)\b"
+                   r"|\bclunky\b|\bjanky\b|\bduct tape\b|\bheld together\b|\bbreaking\b|\binefficient\b|\bfrustrat", re.I)
+
+# Posts by people selling something, not people with a problem.
+_PROMO = re.compile(
+    r"\b(?:i|we)(?:'ve| have)? (?:just |recently |finally |also )?(?:built|made|created|launched|developed|released|shipped|coded|vibe[- ]?coded)\b[^.?!\n]{0,50}"
+    r"\b(?:app|tool|saas|platform|extension|plugin|software|site|website|product|bot|solution|startup|service|mvp|agent)\b"
+    r"|\b(?:i'm|i am|we're|we are|i've been|we've been|currently) (?:building|working on|developing|launching|creating|validating) (?:a|an|my|our)\b"
+    r"|\bmy (?:new |own |little |first )?(?:app|saas|startup|tool|product|side project|platform|extension|plugin|mvp)\b"
+    r"|\b(?:our|my) (?:beta|waitlist|landing page)\b|\bfeedback on (?:my|our|this)\b|\broast my\b"
+    r"|\bwould (?:you|anyone|people|this|it) (?:actually |ever |guys )?(?:use|pay for|be interested|find (?:this|it) useful|be useful)\b"
+    r"|\bvalidat(?:e|ing) (?:my|an|this|the|a) (?:idea|problem|concept)\b|\b(?:beta )?testers? (?:wanted|needed)\b"
+    r"|\blooking for (?:beta|early) (?:testers|users|adopters)\b|\bco-?founder\b|\b(?:dm|pm) me\b|\bsign ?up (?:here|now|today)\b"
+    r"|\blink in (?:bio|comments|profile)\b|\bpromo code\b|\bdiscount code\b|\baffiliate\b|\bcheck (?:it|us|this) out\b|\bshow hn\b"
+    r"|\bwe(?:'re| are) hiring\b|\[hiring\]|\[for hire\]|\bmarket research\b|\bquick survey\b|\bfill out (?:this|my|a) survey\b"
+    r"|\bwhat (?:problems?|pain points?) (?:do you|are you|would you)\b|\bwhat would you (?:want|like) (?:in|from) (?:a|an)\b", re.I)
+# One product's bug or account trouble: real, but not a niche worth building for.
+_SUPPORT = re.compile(
+    r"\berror (?:code|message)\b|\bnot working\b|\bstopped working\b|\bwon't (?:load|open|sync|connect|let me|start|install)\b"
+    r"|\bcan't (?:log ?in|login|sign in|access my)\b|\bkeeps (?:crashing|freezing)\b|\bafter (?:the |an |this )?(?:latest |recent |new )?update\b"
+    r"|\bpassword reset\b|\b2fa\b|\btwo[- ]factor\b|\baccount (?:locked|banned|suspended|disabled|hacked)\b|\brefund\b"
+    r"|\bhow do i (?:fix|reset|change|enable|disable|turn (?:on|off)|get rid of)\b", re.I)
+
+SENT = re.compile(r"(?<=[.!?])\s+|\n+")
+
+# --------------------------------------------------------------------- niches
+# Used when the source doesn't already say who is talking (a subreddit does).
+NICHES = [
+    ("Dental practices", r"\bdental\b|\bdentists?\b|\bhygienists?\b|\borthodont"),
+    ("Veterinary clinics", r"\bveterinar|\bvet (?:clinic|tech|practice)\b|\banimal hospital\b"),
+    ("Pharmacies", r"\bpharmac"),
+    ("Therapists & counsellors", r"\btherapists?\b|\bcounsel(?:l)?ors?\b|\bpsychologists?\b|\btherapy practice\b|\bclient notes\b"),
+    ("Medical practices & clinics", r"\b(?:medical|private) practice\b|\bclinics?\b|\bphysicians?\b|\bpatients?\b|\behr\b|\bemr\b|\bmedical billing\b|\burgent care\b"),
+    ("Nursing & home care", r"\bnurses?\b|\bnursing\b|\bhome health\b|\bassisted living\b|\bhome care\b"),
+    ("Short-term rental hosts", r"\bairbnb\b|\bvrbo\b|\bshort[- ]term rentals?\b|\bvacation rentals?\b|\bstr hosts?\b"),
+    ("Landlords & property managers", r"\blandlords?\b|\btenants?\b|\brental propert|\bproperty manag|\brent roll\b|\bleases?\b"),
+    ("Real estate agents", r"\brealtors?\b|\breal estate agents?\b|\bbrokerage\b|\bmls\b|\blisting agents?\b"),
+    ("HVAC, plumbing & electrical", r"\bhvac\b|\bplumb(?:er|ers|ing)\b|\belectricians?\b|\bservice calls?\b|\bfield techs?\b"),
+    ("Landscaping & lawn care", r"\blandscap|\blawn care\b|\bmowing\b|\bsnow removal\b|\birrigation\b"),
+    ("Cleaning & home services", r"\bcleaning (?:business|company|service|clients)\b|\bmaid\b|\bjanitorial\b|\bpressure wash|\bpest control\b|\bhandyman\b|\bjunk removal\b"),
+    ("Construction & contractors", r"\bcontractors?\b|\bconstruction\b|\bsubcontractors?\b|\bjob ?sites?\b|\bremodel|\brenovation\b|\bchange orders?\b|\btake-?offs?\b"),
+    ("Auto repair & dealerships", r"\bauto (?:repair|shop|body)\b|\bmechanic shop\b|\bdetailing\b|\bdealerships?\b|\btire shop\b|\brepair orders?\b"),
+    ("Restaurants, bars & cafés", r"\brestaurants?\b|\bbar owner\b|\bcaf[eé]s?\b|\bcoffee shop\b|\bkitchen staff\b|\bfood trucks?\b|\bcatering\b|\bbakery\b|\bline cooks?\b"),
+    ("Trucking & freight", r"\btruck(?:ing|ers?)\b|\bfreight\b|\bdispatch(?:er|ers|ing)?\b|\bowner[- ]operators?\b|\bcarriers?\b|\bbills? of lading\b"),
+    ("Logistics & warehousing", r"\bwarehouses?\b|\blogistics\b|\bsupply chain\b|\bpallets?\b|\b3pl\b|\bcycle counts?\b"),
+    ("Manufacturing & machining", r"\bmanufactur|\bmachine shop\b|\bcnc\b|\bfabricat|\bproduction (?:line|floor|schedule)\b|\bbill of materials\b|\bwork orders?\b"),
+    ("E-commerce sellers", r"\bshopify\b|\bwoocommerce\b|\be-?commerce\b|\bonline store\b|\bdropship|\betsy\b|\bamazon (?:fba|seller)\b|\bebay\b|\bskus?\b|\bfulfil?lment\b"),
+    ("Retail shops", r"\bretail (?:store|shop)\b|\bboutique\b|\bbrick[- ]and[- ]mortar\b|\bstorefront\b|\bshop owner\b|\bpoint of sale\b|\bpos system\b|\bconsignment\b"),
+    ("Tax preparers", r"\btax (?:prep|preparers?|season|returns?|pros?|practice)\b|\benrolled agent\b"),
+    ("Accountants & bookkeepers", r"\baccountants?\b|\bbookkeep|\bcpas?\b|\baccounting firm\b|\bmonth[- ]end\b|\breconcil|\bquickbooks\b|\bxero\b"),
+    ("Insurance agents", r"\binsurance (?:agents?|agency|brokers?)\b|\bclaims adjusters?\b|\bunderwrit"),
+    ("Financial advisors", r"\bfinancial (?:advisors?|advisers?|planners?)\b|\bwealth manag|\bria\b"),
+    ("Lawyers & paralegals", r"\blawyers?\b|\battorneys?\b|\blaw firm\b|\bparalegals?\b|\blegal (?:practice|assistant)\b|\bcase management\b|\bdocket"),
+    ("Childcare providers", r"\bdaycare\b|\bchildcare\b|\bpreschool\b|\bnann(?:y|ies)\b"),
+    ("Teachers & schools", r"\bteachers?\b|\bclassroom\b|\bgrading\b|\blesson plans?\b|\bschool district\b|\bmy students\b|\biep\b"),
+    ("Professors & researchers", r"\bprofessors?\b|\bfaculty\b|\bphd\b|\bpostdoc\b|\bmy lab\b|\bresearch (?:group|lab|team)\b|\bdissertation\b|\bgrant (?:proposal|application)s?\b"),
+    ("Nonprofits & fundraising", r"\bnonprofits?\b|\bnon-profits?\b|\bdonors?\b|\bfundrais|\b501\(?c\)?\b|\bcharity\b|\bgrant writing\b|\bvolunteers?\b"),
+    ("Churches, clubs & HOAs", r"\bchurch\b|\bcongregation\b|\bministry\b|\bhoa\b|\bhomeowners association\b|\bclub members\b|\byouth league\b|\bbooster club\b"),
+    ("Event & wedding pros", r"\bwedding (?:planner|photograph|venue|dj|vendors?)\b|\bevent (?:planner|planning|venue|production)\b|\bcaterers?\b|\bflorists?\b"),
+    ("Photographers & videographers", r"\bphotograph(?:er|ers|y business)\b|\bvideograph|\bclient galler"),
+    ("Fitness studios & trainers", r"\bpersonal train|\bgym (?:owner|members)\b|\byoga studio\b|\bpilates\b|\bfitness studio\b|\bmartial arts\b"),
+    ("Salons, spas & beauty", r"\bsalons?\b|\bbarbers?\b|\bstylists?\b|\bestheticians?\b|\bmed ?spa\b|\bnail techs?\b|\blash\b|\btattoo\b"),
+    ("Farms & ranches", r"\bfarm(?:s|ers?|ing)?\b|\branch\b|\blivestock\b|\bcrops?\b|\borchard\b|\bbeekeep|\bgreenhouse\b"),
+    ("IT admins & MSPs", r"\bsysadmins?\b|\bmsp\b|\bhelp ?desk\b|\bactive directory\b|\bendpoints?\b|\bit (?:department|manager|admin|team)\b"),
+    ("HR & recruiting", r"\brecruit(?:er|ers|ing)\b|\bapplicants?\b|\bonboarding\b|\bhr (?:team|department|manager)\b|\bpayroll\b|\btimesheets?\b"),
+    ("Sales teams", r"\bsales (?:team|reps?|pipeline)\b|\bcold (?:call|email)\b|\bprospecting\b"),
+    ("Customer support teams", r"\bsupport (?:team|tickets|agents)\b|\bhelp center\b|\bcustomer success\b"),
+    ("Marketing & agencies", r"\bagency\b|\bmarketing team\b|\bseo\b|\bppc\b|\bsocial media manag|\bcontent calendar\b|\bclient reporting\b"),
+    ("Freelancers & consultants", r"\bfreelanc|\bconsultants?\b|\bsolopreneur\b|\bmy clients\b"),
+    ("Musicians, podcasters & creators", r"\bmusicians?\b|\bmy band\b|\bpodcast|\byoutube channel\b|\bstreamers?\b|\bcreators?\b"),
+    ("Caregivers", r"\bcaregiv|\belderly (?:parent|mother|father|mom|dad)\b|\baging parents?\b|\bdementia\b"),
+    ("ADHD & neurodivergent", r"\badhd\b|\bautis|\bexecutive (?:dys)?function"),
+    ("Health tracking & chronic illness", r"\bchronic\b|\bsymptoms?\b|\bmedications?\b|\bdiabet|\bmigraines?\b"),
+    ("Parents & families", r"\bmy (?:kids?|child|children|son|daughter|toddler)\b|\bco-?parent|\bfamily (?:calendar|schedule)\b|\bchores\b"),
+    ("Students", r"\bcollege\b|\buniversity\b|\bstudying\b|\bexams?\b|\bhomework\b|\bcoursework\b"),
+    ("Job seekers", r"\bjob (?:search|hunt|applications?)\b|\bresumes?\b|\bcover letters?\b"),
+    ("Personal finance", r"\bbudget(?:ing)?\b|\bdebt\b|\bsavings\b|\bcredit cards?\b|\bsubscriptions\b|\bnet worth\b"),
+    ("Homeowners & DIY", r"\bhomeowners?\b|\bhome (?:maintenance|renovation|improvement)\b|\bmy house\b"),
+    ("Pet owners", r"\bmy (?:dog|cat|pets?)\b"),
+    ("Travelers", r"\bitinerar|\btrip planning\b|\bflights?\b|\btravel(?:ing|ling)?\b"),
+    ("Developers & technical teams", r"\bdevelopers?\b|\bengineering team\b|\bdevops\b|\bcodebase\b|\brepos?\b|\bapi\b|\bdeploy|\bkubernetes\b|\bci/cd\b"),
+]
+_NICHES = [(n, re.compile(p, re.I)) for n, p in NICHES]
+GENERAL = "General"
+
+
+def detect_niche(text):
+    best, best_n = None, 0
+    for name, rx in _NICHES:
+        n = len(rx.findall(text))
+        if n > best_n:
+            best, best_n = name, n
+    return best
+
+
+# --------------------------------------------------------------------- themes
+# theme -> (search phrase for validation, keywords)
 THEMES = {
-    "Invoicing & payments": ["invoice", "invoicing", "payment", "billing", "stripe", "paypal", "chargeback", "payout", "late pay", "accounts receivable"],
-    "Accounting & bookkeeping": ["bookkeep", "accounting", "quickbooks", "xero", "reconcil", "ledger", "tax", "receipt", "expense", "cpa", "1099"],
-    "Scheduling & booking": ["schedul", "booking", "appointment", "calendar", "calendly", "no-show", "reservation", "shift"],
-    "Sales & CRM": ["crm", "lead", "pipeline", "prospect", "salesforce", "hubspot", "cold email", "outreach", "follow up", "follow-up", "quote"],
-    "Marketing & email": ["marketing", "newsletter", "email list", "mailchimp", "klaviyo", "campaign", "seo", "ads", "ppc", "landing page"],
-    "Social & content": ["social media", "instagram", "tiktok", "youtube", "content calendar", "linkedin", "posting", "creator"],
-    "E-commerce & inventory": ["inventory", "shopify", "sku", "etsy", "amazon seller", "woocommerce", "product listing", "stock", "dropship", "storefront"],
-    "Shipping & logistics": ["shipping", "fulfil", "shipment", "tracking number", "freight", "warehouse", "delivery", "dispatch", "truck", "returns"],
-    "Customer support": ["customer support", "helpdesk", "ticket", "live chat", "zendesk", "refund", "complaint", "customer service"],
-    "HR, hiring & payroll": ["hiring", "recruit", "applicant", "resume", "payroll", "onboarding", "employee", "timesheet", "pto", "interview"],
-    "Projects & tasks": ["project management", "task", "asana", "trello", "jira", "monday.com", "todo", "to-do", "kanban", "deadline"],
-    "Docs, notes & knowledge": ["notion", "documentation", "wiki", "knowledge base", "notes", "evernote", "sop", "confluence"],
-    "Data, reporting & spreadsheets": ["spreadsheet", "excel", "google sheet", "report", "dashboard", "analytics", "csv", "data entry", "pivot"],
-    "Integrations & automation": ["integrat", "zapier", "automat", "api", "webhook", "sync", "workflow", "make.com", "n8n"],
-    "Developer tooling": ["github", "deploy", "ci/cd", "kubernetes", "docker", "debug", "logging", "monitoring", "sdk", "codebase", "pull request"],
-    "Security, privacy & compliance": ["security", "privacy", "gdpr", "hipaa", "soc 2", "soc2", "compliance", "password", "2fa", "audit"],
-    "Meetings & communication": ["meeting", "zoom", "slack", "teams", "notification", "email inbox", "inbox", "transcri"],
-    "Property & real estate": ["tenant", "landlord", "rent", "property", "lease", "realtor", "listing", "hoa", "maintenance request"],
-    "Healthcare & clinics": ["patient", "clinic", "ehr", "emr", "insurance claim", "prior auth", "nurse", "doctor", "dental", "pharmacy", "medical billing"],
-    "Education & teaching": ["teacher", "student", "grading", "classroom", "lesson plan", "school", "tutor", "course"],
-    "Legal & contracts": ["contract", "legal", "lawyer", "attorney", "nda", "e-sign", "esign", "court", "paralegal"],
-    "Field service & trades": ["contractor", "plumb", "electrician", "hvac", "job site", "estimate", "landscap", "cleaning business", "technician"],
-    "Restaurants & hospitality": ["restaurant", "menu", "kitchen", "pos", "point of sale", "hotel", "catering", "food cost"],
-    "Personal finance & life admin": ["budget", "savings", "debt", "subscriptions", "bill", "credit card", "personal finance", "household"],
-    "Pricing & cost complaints": ["too expensive", "price increase", "pricing", "overpriced", "subscription fee", "per seat"],
-    "Reliability & quality": ["bug", "crash", "slow", "broken", "outage", "downtime", "glitch", "update ruined"],
+    "Scheduling & booking": ("scheduling software", ["schedul", "booking", "appointment", "calendar", "no-show", "no show", "reservation", "shift", "dispatch"]),
+    "Invoicing & getting paid": ("invoicing software", ["invoice", "invoicing", "payment", "billing", "late pay", "accounts receivable", "deposit", "collect payment", "past due"]),
+    "Bookkeeping & tax": ("bookkeeping software", ["bookkeep", "accounting", "reconcil", "ledger", "tax", "receipt", "expense", "1099", "month-end", "chart of accounts"]),
+    "Estimates, quotes & proposals": ("estimating software", ["estimate", "quote", "proposal", "bid", "takeoff", "take-off", "pricing jobs"]),
+    "Leads, CRM & follow-up": ("crm", ["crm", "lead", "pipeline", "prospect", "follow up", "follow-up", "outreach", "referral"]),
+    "Client communication & reminders": ("client communication software", ["reminder", "text message", "sms", "client portal", "client communication", "notify", "notification", "intake form", "intake"]),
+    "Inventory & stock": ("inventory management software", ["inventory", "stock", "sku", "parts", "reorder", "barcode", "cycle count"]),
+    "Orders, shipping & fulfilment": ("order management software", ["order", "shipping", "fulfil", "shipment", "tracking number", "freight", "delivery", "returns", "label"]),
+    "Staff, hiring & payroll": ("workforce management software", ["hiring", "recruit", "applicant", "payroll", "onboarding", "employee", "timesheet", "time tracking", "pto", "staffing", "crew"]),
+    "Jobs, projects & tasks": ("job management software", ["project", "task", "work order", "job tracking", "checklist", "deadline", "kanban", "punch list", "to-do", "todo"]),
+    "Documents, forms & records": ("document management software", ["document", "paperwork", "form", "pdf", "contract", "signature", "e-sign", "records", "filing", "template", "notes"]),
+    "Reporting & spreadsheets": ("reporting software", ["spreadsheet", "excel", "google sheet", "report", "dashboard", "analytics", "csv", "data entry", "pivot"]),
+    "Connecting tools & automation": ("workflow automation software", ["integrat", "zapier", "automat", "api", "webhook", "sync", "workflow", "import", "export"]),
+    "Compliance, licences & audits": ("compliance software", ["compliance", "regulation", "audit", "license", "licence", "certification", "inspection", "hipaa", "gdpr", "osha", "permit"]),
+    "Marketing, reviews & social": ("marketing software", ["marketing", "newsletter", "email list", "campaign", "seo", "ads", "social media", "reviews", "google business", "content"]),
+    "Customer support": ("help desk software", ["customer support", "helpdesk", "help desk", "ticket", "live chat", "complaint", "customer service"]),
+    "Online store & listings": ("ecommerce software", ["product listing", "listings", "storefront", "checkout", "cart", "variants", "catalog", "marketplace"]),
+    "Money, budgets & subscriptions": ("budgeting app", ["budget", "savings", "debt", "subscriptions", "bills", "net worth", "cash flow", "spending"]),
+    "Health, habits & care": ("health tracking app", ["symptom", "medication", "habit", "sleep", "diet", "meal", "workout", "care plan", "appointments for"]),
+    "Learning & teaching": ("education software", ["grading", "lesson", "course", "curriculum", "study", "flashcard", "homework", "assignment"]),
+    "Meetings, email & messaging": ("team communication software", ["meeting", "inbox", "email", "slack", "teams", "transcri", "voicemail", "phone calls"]),
+    "Property & maintenance": ("property management software", ["tenant", "rent", "lease", "maintenance request", "work order", "turnover", "inspection", "hoa"]),
+    "Pricing & affordability": ("affordable alternative", ["too expensive", "price increase", "pricing", "overpriced", "per seat", "per user", "subscription fee", "can't afford"]),
 }
 
-# Words suggesting software can help vs. structural/physical problems.
-SAAS_POSITIVE = [
+
+def _kw_rx(kws):
+    """Short keywords must match whole words ("pos" != "possible"); longer ones match word prefixes."""
+    return [re.compile(r"\b" + re.escape(k.strip()) + (r"\b" if len(k.strip()) <= 4 else ""), re.I) for k in kws]
+
+
+_THEME_RX = {t: _kw_rx(k) for t, (_, k) in THEMES.items()}
+OTHER = "Other needs"
+
+
+def themes_for(text):
+    scored = []
+    for theme, rxs in _THEME_RX.items():
+        n = sum(1 for rx in rxs if rx.search(text))
+        if n:
+            scored.append((n, theme))
+    scored.sort(key=lambda x: -x[0])
+    return [th for _, th in scored[:2]] or [OTHER]
+
+
+SAAS_POSITIVE = _kw_rx([
     "tool", "app", "software", "saas", "dashboard", "automate", "automation", "integrat", "sync", "track",
     "spreadsheet", "excel", "manually", "workflow", "report", "export", "import", "api", "plugin", "extension",
-    "template", "crm", "invoice", "schedul", "notification", "remind", "database", "portal", "online", "platform",
-]
-SAAS_NEGATIVE = [
-    "government", "law ", "legislation", "landlord won't", "my boss", "coworker", "salary", "wage", "rent is",
-    "housing", "healthcare cost", "insurance denied", "supply chain shortage", "tariff", "union", "physical", "injury",
-]
+    "template", "crm", "invoice", "schedul", "notification", "remind", "database", "portal", "online", "platform"])
+SAAS_NEGATIVE = _kw_rx([
+    "government", "legislation", "landlord won't", "my boss", "coworker", "salary", "wages", "rent is",
+    "housing market", "insurance denied", "shortage", "tariff", "union", "injury", "lawsuit", "burnout", "understaffed"])
+
+
+def saas_fit_for(text, signals):
+    pos = sum(1 for rx in SAAS_POSITIVE if rx.search(text))
+    neg = sum(1 for rx in SAAS_NEGATIVE if rx.search(text))
+    base = 2 if set(signals) & {"ask_tool", "pay", "spreadsheet", "manual", "switch", "gig"} else 0
+    v = base + pos - 2 * neg
+    return "high" if v >= 3 else "medium" if v >= 1 else "low"
+
+
+def costs_for(signals, text):
+    """Problems are grounded in time or money spent."""
+    out = []
+    if set(signals) & {"time_sink", "manual", "spreadsheet", "better_way"}:
+        out.append("time")
+    if set(signals) & {"pay", "too_expensive", "gig"} or re.search(r"\bcost(?:s|ing)? (?:me|us)\b|\blos(?:e|ing|t) (?:money|customers|clients|revenue)\b", text, re.I):
+        out.append("money")
+    return out
+
 
 STOP = set("""
 a about above after again against all am an and any are aren't as at be because been before being below between
@@ -82,170 +247,136 @@ there there's these they they're this those through to too under until up very w
 what what's when where which while who whom why with won't would wouldn't you you're your yours yourself also get
 got like really one use using used want need way thing things know think make go going even much many lot still
 every week weeks month months year years today daily anyone someone something anything people also new time day work able just https http www com
+looking wish tool app software there's i'll thanks thank please help anybody advice question
 """.split())
-
-KIND_LABEL = {"discussion": "Discussion", "review": "1-2★ review", "feature_request": "Feature request", "job": "Job post"}
-
-
-def _kw_rx(kws):
-    """Short keywords must match whole words ("pos" != "possible"); longer ones match word prefixes."""
-    parts = [re.escape(k.strip()) + (r"\b" if len(k.strip()) <= 4 else "") for k in kws]
-    return [re.compile(r"\b" + p, re.I) for p in parts]
-
-
-_THEME_RX = {t: _kw_rx(k) for t, k in THEMES.items()}
-_POS_RX = _kw_rx(SAAS_POSITIVE)
-_NEG_RX = _kw_rx(SAAS_NEGATIVE)
-
-
-def _norm(text):
-    return re.sub(r"[^a-z0-9'\- ]+", " ", text.lower())
-
-
-def signals_for(text):
-    hits, score = [], 0
-    for rx, w, label in _SIG:
-        if rx.search(text):
-            if label not in hits:
-                hits.append(label)
-            score += w
-    return score, hits
-
-
-def themes_for(text):
-    scored = []
-    for theme, rxs in _THEME_RX.items():
-        n = sum(1 for rx in rxs if rx.search(text))
-        if n:
-            scored.append((n, theme))
-    scored.sort(reverse=True)
-    return [th for _, th in scored[:3]] or ["Other"]
-
-
-def saas_fit_for(text, kind):
-    pos = sum(1 for rx in _POS_RX if rx.search(text))
-    neg = sum(1 for rx in _NEG_RX if rx.search(text))
-    if kind in ("review", "feature_request"):
-        pos += 2  # complaints about software are by definition software-shaped
-    if kind == "job":
-        pos += 1
-    v = pos - 2 * neg
-    return "high" if v >= 3 else "medium" if v >= 1 else "low"
 
 
 def keywords_for(text, n=8):
-    words = [w.strip("'-") for w in _norm(text).split()]
+    words = [w.strip("'-") for w in re.sub(r"[^a-z0-9'\- ]+", " ", text.lower()).split()]
     words = [w for w in words if len(w) > 2 and w not in STOP and not w.isdigit()]
     grams = Counter()
     for a, b in zip(words, words[1:]):
         grams[f"{a} {b}"] += 1
-    for w in words:
-        grams[w] += 0.25
     return [g for g, _ in grams.most_common(n)]
 
 
-def score_item(it):
-    text = f"{it['title']} {it['text']}"
-    s, sig = signals_for(text)
-    if it["kind"] == "review":
-        r = it.get("rating") or 5
-        s += 3 if r <= 1 else 2 if r == 2 else 1
-    elif it["kind"] == "feature_request":
-        s += 3
-    elif it["kind"] == "job":
-        s += 3
-    pain = s + math.log1p(max(0, it.get("engagement", 0))) * 1.2
-    it["signals"] = sig
-    it["pain_score"] = round(pain, 2)
-    it["themes"] = themes_for(text)
-    it["saas_fit"] = saas_fit_for(text, it["kind"])
-    it["keywords"] = keywords_for(text)
-    it["kind_label"] = KIND_LABEL.get(it["kind"], it["kind"])
-    it["costs"] = costs_for(sig)
-    if it["kind"] in ("review", "feature_request"):
-        it["complaints"] = complaint_types_for(text)
-    uses = spreadsheet_uses_for(text)
-    if uses:
-        it["spreadsheet_uses"] = uses
-    if it["kind"] == "job":
-        it["duties"] = duties_for(it["text"])
+# ----------------------------------------------------------- signals + need
+def signals_for(text):
+    """Returns (strong_weight, weak_weight, [keys])."""
+    keys, strong, weak = [], 0, 0
+    pain = bool(_PAIN.search(text))
+    for key, _, w, rx in _STRONG:
+        hit = (bool(_MANUAL.search(text)) and pain) if key == "manual" else \
+              (bool(_SHEET.search(text)) and pain) if key == "spreadsheet" else bool(rx.search(text))
+        if hit:
+            keys.append(key)
+            strong += w
+    for key, _, w, rx in _WEAK:
+        if rx.search(text):
+            keys.append(key)
+            weak += w
+    return strong, weak, keys
+
+
+def need_statement(title, text, keys):
+    """The sentence where the person states what they need."""
+    sents = [s.strip() for s in SENT.split(f"{title}\n{text}") if 25 <= len(s.strip()) <= 320]
+    best, best_w = None, 0
+    for s in sents:
+        w = 0
+        for key, _, wt, rx in _STRONG:
+            if rx is not None and rx.search(s):
+                w += wt
+        if (_MANUAL.search(s) or _SHEET.search(s)) and _PAIN.search(s):
+            w += 3
+        if w and len(s) >= 60:
+            w += 1  # prefer the sentence that says what the problem is over a bare "is there a better way?"
+        if w > best_w:
+            best, best_w = s, w
+    if not best:
+        best = (title or (sents[0] if sents else text)).strip()
+    return re.sub(r"\s+", " ", best)[:300]
+
+
+def short(t, n=90):
+    t = re.sub(r"\s+", " ", t or "").strip()
+    return t if len(t) <= n else t[: n - 1].rsplit(" ", 1)[0] + "…"
+
+
+def score_item(it, min_strong=3):
+    """Annotates the item. it['keep'] says whether it is a lead."""
+    title, text = it.get("title") or "", it.get("text") or ""
+    full = f"{title}\n{text}"
+    strong, weak, keys = signals_for(full)
+    implied = it.get("implied")  # the source itself is the signal (a gig, a software-request site, an idea thread)
+    if implied and implied not in keys:
+        keys.insert(0, implied)
+        strong += {"gig": 4, "ask_tool": 4, "idea_thread": 3}.get(implied, 3)
+    it["signals"] = keys
+    it["keep"] = False
+    if strong < min_strong or len(full) < 60:
+        return it
+    promo = it["kind"] != "gig" and _PROMO.search(full)
+    support = _SUPPORT.search(full) and not (set(keys) & {"pay", "ask_tool", "wish", "nothing_fits", "gig"})
+    if promo or support:
+        it["dropped"] = "promo" if promo else "support"
+        return it
+
+    hint = it.get("niche_hint")
+    niche = hint or detect_niche(full) or GENERAL
+    it["niche"] = niche
+    it["themes"] = themes_for(full)
+    it["saas_fit"] = saas_fit_for(full, keys)
+    it["costs"] = costs_for(keys, full)
+    it["need"] = need_statement(title, text, keys)
+    if not title or title.lower().startswith("comment on"):
+        it["title"] = short(it["need"], 110)
+    it["keywords"] = keywords_for(full)
+    it["signal_labels"] = [LABEL[k] for k in keys if k in LABEL]
+    products = products_for(full)
+    if products:
+        it["products"] = products
+        it["complaints"] = complaint_types_for(full)
+    score = strong + min(weak, 2) + (1 if niche != GENERAL else 0) + (1 if len([k for k in keys if k in _STRONG_KEYS]) >= 2 else 0)
+    score += math.log1p(max(0, it.get("engagement", 0))) * 0.8
+    it["pain_score"] = round(score, 1)
+    it["keep"] = True
     return it
 
 
-def keep_item(it, min_score):
-    """Is this a pain point worth showing? Engagement alone is not pain."""
-    if it["kind"] == "job":
-        return it.get("manual_hits", 2) >= 2  # other job posts only feed the duties table
-    if it["kind"] == "review" and (it.get("rating") or 1) >= 3:
-        return bool(GAP_TYPES & set(it.get("complaints", [])))  # 3-star: only when it names a gap
-    return it["pain_score"] >= min_score and (bool(it["signals"]) or it["kind"] != "discussion")
+_STRONG_KEYS = {k for k, _, w, _ in STRONG if w >= 3} | {"gig", "idea_thread"}
+
+# --------------------------------------------- products people want to leave
+_PRODUCT = re.compile(
+    r"(?i:alternatives? to|replacement for|substitute for|switch(?:ing|ed)? (?:away )?from|mov(?:e|ing|ed) (?:away )?from|"
+    r"migrat(?:e|ing|ed) (?:away )?from|leaving|ditching|cancel(?:l)?(?:ing|ed)|fed up with|sick of|outgr(?:ew|own|owing)) "
+    r"((?:[A-Z][A-Za-z0-9.+]*|[a-z]+[A-Z][A-Za-z0-9]*|[A-Z0-9]{2,})(?:[ -](?:[A-Z][A-Za-z0-9.+]*|[0-9]{1,4}))?)")
+_NOT_PRODUCT = {"i", "the", "my", "we", "it", "this", "that", "they", "there", "these", "those", "our", "your", "you", "he",
+                "she", "a", "an", "and", "but", "if", "so", "is", "any", "all", "what", "when", "how", "why", "one", "some",
+                "us", "to", "in", "on", "for", "no", "not", "ai", "it's", "i'm", "usa", "uk", "us", "eu", "ceo", "saas", "crm",
+                "erp", "pos", "hr", "it", "pc", "january", "february", "march", "april", "may", "june", "july", "august",
+                "september", "october", "november", "december", "monday", "friday", "paper", "excel sheets"}
 
 
-def _short(t, n=90):
-    t = re.sub(r"\s+", " ", t or "").strip()
-    return t if len(t) <= n else t[: n - 1].rsplit(" ", 1)[0] + "\u2026"
+def products_for(text):
+    out = []
+    for m in _PRODUCT.finditer(text):
+        name = m.group(1).strip(" .,-")
+        if len(name) >= 3 and name.lower() not in _NOT_PRODUCT and name.split()[0].lower() not in _NOT_PRODUCT and name not in out:
+            out.append(name)
+    return out[:3]
 
 
-def _cluster_summary(gram, members, items):
-    others = [t for t in dict.fromkeys(_short(items[i]["title"], 70) for i in members[1:]) if t
-              and t != _short(items[members[0]]["title"], 70)][:2]
-    base = f"{len(members)} posts mention \u201c{gram}\u201d."
-    return base + (" Also: " + "; ".join(others) if others else "")
-
-
-def heuristic_clusters(items, max_clusters=25):
-    """Group items that share a distinctive bigram. Cheap and stable across days."""
-    gram_items = defaultdict(set)
-    for i, it in enumerate(items):
-        for g in it["keywords"]:
-            if " " in g:
-                gram_items[g].add(i)
-    candidates = sorted(
-        ((g, ids) for g, ids in gram_items.items() if len(ids) >= 2),
-        key=lambda x: (-sum(items[i]["pain_score"] for i in x[1]), x[0]),
-    )
-    used, clusters = set(), []
-    for g, ids in candidates:
-        fresh = ids - used
-        if len(fresh) < 2:
-            continue
-        used |= fresh
-        members = sorted(fresh, key=lambda i: -items[i]["pain_score"])
-        th = Counter(t for i in members for t in items[i]["themes"]).most_common(1)[0][0]
-        fits = Counter(items[i]["saas_fit"] for i in members).most_common(1)[0][0]
-        clusters.append({
-            "key": re.sub(r"[^a-z0-9]+", "-", g).strip("-"),
-            "title": _short(items[members[0]]["title"] or items[members[0]]["text"]),
-            "search_keyword": f"{g} software",
-            "summary": _cluster_summary(g, members, items),
-            "theme": th,
-            "saas_fit": fits,
-            "item_ids": [items[i]["id"] for i in members],
-            "sources": sorted({items[i]["source"] for i in members}),
-            "score": round(sum(items[i]["pain_score"] for i in members), 2),
-            "method": "keyword",
-        })
-        if len(clusters) >= max_clusters:
-            break
-    return clusters
-
-
-# --------------------------------------------------------- incumbent gaps
-# What paying customers say is wrong with a product (1-3 star reviews, feature requests).
 COMPLAINTS = {
-    "missing_feature": r"\bmissing|doesn't (?:support|have|allow|let)|does not (?:support|have|allow|let)|no (?:way|option) to|\black(?:s|ing)\b|i wish (?:it|they|there)|please add|would love (?:to see|if)|feature request|can't even|cannot even|needs? (?:a|an|the) option",
-    "hard_to_use": r"\bconfusing|hard to (?:use|figure|understand|navigate|set ?up|find)|complicated|not intuitive|unintuitive|clunky|learning curve|user[- ]unfriendly|too many (?:steps|clicks)",
-    "too_expensive": r"\bexpensive|overpriced|price (?:increase|hike)|pricey|hidden fees?|not worth (?:the|it)|charg(?:ed|es|ing) (?:me|us)|raised (?:the|their) price|paywall",
-    "unreliable": r"\bbug(?:gy|s)?\b|crash|broken|stopped working|glitch|doesn't work|does not work|not working|lost (?:all )?(?:my |our )?data|keeps (?:failing|logging)",
-    "integrations": r"\bintegrat|\bsync|connect(?:ion|or)?s?\b|\bapi\b|zapier|\bexport|\bimport",
-    "bad_support": r"\bsupport (?:is|was|team)|customer service|no response|never (?:replied|responded|answered|heard back)|ticket",
-    "slow": r"\bslow|\blag(?:gy)?\b|takes forever|loading",
+    "too_expensive": r"\bexpensive|overpriced|price (?:increase|hike)|pricey|hidden fees?|not worth (?:the|it)|raised (?:the|their) price|per (?:seat|user)|can't afford|cost",
+    "missing_feature": r"\bmissing|doesn't (?:support|have|allow|let|do)|does not (?:support|have|allow|let|do)|no (?:way|option) to|\black(?:s|ing)\b|can't even|cannot even|limited|limitation",
+    "hard_to_use": r"\bconfusing|hard to (?:use|figure|understand|navigate|set ?up|learn)|complicated|not intuitive|unintuitive|clunky|learning curve|too complex|overkill|bloated",
+    "unreliable": r"\bbug(?:gy|s)?\b|crash|broken|glitch|unreliable|lost (?:all )?(?:my |our )?data|downtime|outage",
+    "integrations": r"\bintegrat|\bsync|\bapi\b|zapier|\bexport|\bimport",
+    "bad_support": r"\bsupport (?:is|was|team)|customer service|no response|never (?:replied|responded|answered|heard back)",
+    "slow": r"\bslow\b|\blag(?:gy)?\b|takes forever",
+    "acquired_or_changed": r"\bacquired|bought by|shutting down|sunset|discontinu|end of life|new owner|forced (?:upgrade|migration)|subscription[- ]only",
 }
-COMPLAINT_LABEL = {
-    "missing_feature": "Missing feature", "hard_to_use": "Hard to use", "too_expensive": "Too expensive",
-    "unreliable": "Unreliable", "integrations": "Integrations", "bad_support": "Bad support", "slow": "Slow",
-}
-GAP_TYPES = {"missing_feature", "hard_to_use", "too_expensive", "integrations"}
 _COMPLAINT_RX = {k: re.compile(v, re.I) for k, v in COMPLAINTS.items()}
 
 
@@ -253,81 +384,81 @@ def complaint_types_for(text):
     return [k for k, rx in _COMPLAINT_RX.items() if rx.search(text)]
 
 
-def costs_for(signals):
-    """Problems are grounded in time or money spent."""
-    out = []
-    if set(signals) & {"time sink", "manual work", "workaround", "spreadsheet workaround"}:
-        out.append("time")
-    if set(signals) & {"too expensive", "would pay", "looking to switch"}:
-        out.append("money")
-    return out
-
-
-# ------------------------------------------------- Job Search Method (duties)
-_DUTY_VERBS = (r"manag(?:e|es|ing)|maintain(?:s|ing)?|track(?:s|ing)?|coordinat(?:e|es|ing)|schedul(?:e|es|ing)|"
-               r"process(?:es|ing)?|prepar(?:e|es|ing)|reconcil(?:e|es|ing)|updat(?:e|es|ing)|monitor(?:s|ing)?|"
-               r"compil(?:e|es|ing)|enter(?:s|ing)?|handl(?:e|es|ing)|organiz(?:e|es|ing)|overse(?:e|es|eing)|"
-               r"administer(?:s|ing)?|generat(?:e|es|ing)|verif(?:y|ies|ying)|audit(?:s|ing)?|invoic(?:e|es|ing)|"
-               r"dispatch(?:es|ing)?|record(?:s|ing)?|log(?:s|ging)?|follow(?:s|ing)? up on|respond(?:s|ing)? to")
-_STOP_AT = r"(?=[,.;:()\n•\-–—]|\s+(?:and|or|to|with|for|in|on|across|using|as|by|within|from|that|while|including|per|via|at|against|into|between|throughout|under|over|before|after|when|where|according|so|such)\b|$)"
-_DUTY_RX = re.compile(r"\b(?:" + _DUTY_VERBS + r")\s+((?:[a-z&/'-]+\s+){0,4}?[a-z&/'-]+)" + _STOP_AT, re.I)
-_COMPLIANCE_RX = re.compile(r"\bensur(?:e|es|ing) compliance with\s+((?:[a-z&/'-]+\s+){0,5}?[a-z&/'-]+)" + _STOP_AT.replace(r"and|or|", r"or|"), re.I)
-_LEAD = {"the", "all", "our", "a", "an", "any", "daily", "weekly", "monthly", "various", "multiple", "new", "existing",
-         "accurate", "timely", "company", "company's", "client", "your", "their", "its", "day-to-day", "high", "large",
-         "complex", "internal", "external", "relevant", "appropriate", "necessary", "key", "other", "incoming", "outgoing"}
-_GENERIC = {"tasks", "duties", "projects", "project", "team", "teams", "work", "others", "them", "it", "time", "issues",
-            "relationships", "needs", "requests", "information", "process", "processes", "operations", "activities",
-            "responsibilities", "people", "staff", "business", "day", "role", "things", "efforts", "this", "these",
-            "customers", "clients", "customer", "client", "employees", "members", "partners", "stakeholders", "leadership",
-            "records", "reports", "data", "documents", "documentation", "files", "emails", "calls", "paperwork", "details",
-            "correspondence", "inquiries", "accounts", "systems", "status", "changes", "updates", "deadlines", "schedules"}
-
-
-def _clean_phrase(p):
-    words = [w for w in re.sub(r"[^a-z&/' -]", " ", p.lower()).split()]
-    while words and words[0] in _LEAD:
-        words.pop(0)
-    while words and (words[-1] in _LEAD or words[-1] in STOP):
-        words.pop()
-    if not words or len(words) > 4 or all(w in _GENERIC or w in STOP for w in words):
-        return None
-    if len(words) == 1 and (words[0] in _GENERIC or len(words[0]) < 4):
-        return None
-    return " ".join(words)
-
-
-def duties_for(text):
-    found = []
-    for m in _COMPLIANCE_RX.finditer(text):
-        ph = _clean_phrase(m.group(1))
-        if ph:
-            found.append(re.sub(r"\s+(?:regulations|requirements|standards|laws|rules|policies)$", "", ph) + " compliance")
-    for m in _DUTY_RX.finditer(text):
-        ph = _clean_phrase(m.group(1))
-        if ph and ph not in found and not ph.endswith("compliance"):
-            found.append(ph)
-    return found[:12]
-
-
-def software_keyword(phrase):
-    return phrase if phrase.endswith(("software", "system", "tool")) else f"{phrase} management software"
-
-
-# ------------------------------------------- What-They're-Using-Excel-For Method
-_SHEET = r"(?:spread ?sheets?|excel(?: sheets?| files?)?|google sheets?|a (?:shared |giant |massive |huge )?sheet)"
+# ------------------------------------------- what people use spreadsheets for
+_STOP_AT = (r"(?=[,.;:()\n•\-–—!?]|\s+(?:and|or|to|with|for|in|on|across|using|as|by|within|from|that|while|including|per|via|at|"
+            r"but|because|so|which|is|are|was|it|i|we|then|when|where|since|until|though|if)\b|$)")
+_SHEETW = r"(?:spread ?sheets?|excel(?: sheets?| files?| workbooks?)?|google sheets?|a (?:shared |giant |massive |huge |big )?sheet)"
 _SHEET_VERB = (r"(?:track(?:ing)?|manag(?:e|ing)|keep(?:ing)? track of|log(?:ging)?|plan(?:ning)?|calculat(?:e|ing)|"
-               r"organiz(?:e|ing)|record(?:ing)?|monitor(?:ing)?|schedul(?:e|ing)|budget(?:ing)?|run(?:ning)?|store|storing)")
+               r"organiz(?:e|ing)|record(?:ing)?|monitor(?:ing)?|schedul(?:e|ing)|run(?:ning)?|stor(?:e|ing)|maintain(?:ing)?|handl(?:e|ing))")
 _SHEET_RX = [
-    re.compile(_SHEET + r"\s+(?:to|for)\s+(?:" + _SHEET_VERB + r"\s+)?((?:[a-z'/-]+\s+){0,3}?[a-z'/-]+)" + _STOP_AT, re.I),
-    re.compile(r"\b" + _SHEET_VERB + r"\s+((?:[a-z'/-]+\s+){0,3}?[a-z'/-]+)\s+(?:in|on|with|using|via)\s+(?:a |an |our |my |the |one )?(?:big |giant |shared |massive |huge |single )?" + _SHEET, re.I),
+    re.compile(_SHEETW + r"\s+(?:to|for)\s+" + _SHEET_VERB + r"\s+((?:[a-z'/-]+\s+){0,3}?[a-z'/-]+)" + _STOP_AT, re.I),
+    re.compile(_SHEETW + r"\s+for\s+((?:[a-z'/-]+\s+){0,2}?[a-z'/-]+(?:s|ing))" + _STOP_AT, re.I),
+    re.compile(r"\b" + _SHEET_VERB + r"\s+((?:[a-z'/-]+\s+){0,3}?[a-z'/-]+)\s+(?:in|on|with|using|via)\s+(?:a |an |our |my |the |one |multiple |several )?"
+               r"(?:big |giant |shared |massive |huge |single |simple |basic |messy |complicated )?" + _SHEETW, re.I),
 ]
+_LEAD = {"the", "all", "our", "a", "an", "any", "my", "your", "their", "its", "his", "her", "this", "these", "those", "some",
+         "each", "every", "daily", "weekly", "monthly", "various", "multiple", "new", "existing", "different", "many", "of"}
+_VAGUE = {"everything", "stuff", "things", "data", "it", "them", "this", "that", "information", "info", "all", "business",
+          "work", "figure", "analyze", "calculate", "see", "make", "keep", "help", "everyone", "anything", "something",
+          "numbers", "details", "items", "progress", "now", "years", "example", "me", "us", "myself", "ages", "lot", "lots"}
 
 
 def spreadsheet_uses_for(text):
     out = []
     for rx in _SHEET_RX:
         for m in rx.finditer(text):
-            ph = _clean_phrase(m.group(1))
-            if ph and ph not in out and ph not in ("everything", "stuff", "data"):
+            words = re.sub(r"[^a-z&/' -]", " ", m.group(1).lower()).split()
+            while words and words[0] in _LEAD:
+                words.pop(0)
+            while words and (words[-1] in _LEAD or words[-1] in STOP):
+                words.pop()
+            if not words or len(words) > 4 or all(w in _VAGUE or w in STOP for w in words):
+                continue
+            ph = " ".join(words)
+            if len(ph) >= 4 and not any(ph in o or o in ph for o in out):
                 out.append(ph)
-    return out[:5]
+    return out[:4]
+
+
+# --------------------------------------------------------------- clustering
+def _slug(s):
+    return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
+
+
+def search_keyword(niche, theme):
+    base = THEMES.get(theme, ("software",))[0]
+    return base if niche == GENERAL else f"{base} for {niche.lower().replace(' & ', ' and ')}"
+
+
+def niche_clusters(items, max_clusters=40):
+    """Group leads by who has the problem and what kind it is. The key is stable from week
+    to week, so the same niche + problem area can be followed over time."""
+    groups = defaultdict(list)
+    for it in items:
+        groups[(it["niche"], it["themes"][0])].append(it)
+    clusters = []
+    for (niche, theme), members in groups.items():
+        members.sort(key=lambda x: -x["pain_score"])
+        if len(members) < 2 and members[0]["pain_score"] < 9:
+            continue
+        top = members[0]
+        others = [o for o in dict.fromkeys(short(m["need"], 110) for m in members[1:6]) if o != short(top["need"], 110)]
+        sources = sorted({m["source"] for m in members})
+        score = sum(m["pain_score"] for m in members) * (1 + 0.25 * (len(sources) - 1))
+        clusters.append({
+            "key": f"{_slug(niche)}--{_slug(theme)}",
+            "title": theme if niche == GENERAL else f"{niche}: {theme[0].lower() + theme[1:]}",
+            "summary": f"“{short(top['need'], 220)}”" + (f" Also: “{others[0]}”" if others else ""),
+            "niche": niche,
+            "theme": theme,
+            "saas_fit": Counter(m["saas_fit"] for m in members).most_common(1)[0][0],
+            "costs": sorted({c for m in members for c in m.get("costs", [])}),
+            "search_keyword": search_keyword(niche, theme),
+            "item_ids": [m["id"] for m in members],
+            "sources": sources,
+            "score": round(score, 1),
+            "method": "niche",
+        })
+    # Specific niches and named problem areas first; catch-all buckets sink.
+    clusters.sort(key=lambda c: -(c["score"] * (0.5 if c["niche"] == GENERAL else 1) * (0.6 if c["theme"] == OTHER else 1)))
+    return clusters[:max_clusters]

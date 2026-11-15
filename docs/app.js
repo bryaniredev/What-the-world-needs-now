@@ -5,7 +5,7 @@
 
   const KEY_SLOT = "wtwn.k";
   const $ = (s, el = document) => el.querySelector(s);
-  const state = { key: null, meta: null, index: null, days: {}, view: "today", date: null, charts: [], range: 30 };
+  const state = { key: null, meta: null, index: null, days: {}, view: "today", date: null, charts: [], range: 12 };
 
   // ------------------------------------------------------------------ utils
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -16,16 +16,16 @@
   const shortDate = (d) => new Date(d + "T00:00:00Z").toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
   const sum = (o) => Object.values(o || {}).reduce((a, b) => a + b, 0);
   const SOURCE_LABEL = {
-    hackernews: "Hacker News", reddit: "Reddit", stackexchange: "Stack Exchange", github: "GitHub issues",
-    app_store: "App Store", shopify_apps: "Shopify apps", wordpress_plugins: "WordPress plugins", jobs: "Job posts", fixture: "Fixture",
-    job_boards: "Job boards (browser)",
+    reddit: "Reddit communities", forums: "Merchant & pro forums", freelance: "Freelance gigs", hackernews: "Hacker News",
+    stackexchange: "Stack Exchange", bluesky: "Bluesky", fixture: "Fixture",
   };
-  const BOARD_LABEL = { linkedin: "LinkedIn", indeed: "Indeed", ziprecruiter: "ZipRecruiter", glassdoor: "Glassdoor",
-    monster: "Monster", dice: "Dice", usajobs: "USAJOBS", google: "Google Jobs" };
-  const srcLabel = (s) => SOURCE_LABEL[s] || (s.startsWith("job_boards:") ? `↳ ${BOARD_LABEL[s.slice(11)] || s.slice(11)}` : s);
+  const srcLabel = (s) => SOURCE_LABEL[s] || s;
+  const weekLabel = (d) => `Week to ${fmtDate(d)}`;
+  const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
   const fitBadge = (f) => `<span class="fit fit-${esc(f || "low")}" title="How well a software product could address this">SaaS fit: ${esc(f || "?")}</span>`;
   const COMPLAINT_LABEL = { missing_feature: "Missing feature", hard_to_use: "Hard to use", too_expensive: "Too expensive",
-    unreliable: "Unreliable", integrations: "Integrations", bad_support: "Bad support", slow: "Slow", other: "Other" };
+    unreliable: "Unreliable", integrations: "Integrations", bad_support: "Bad support", slow: "Slow",
+    acquired_or_changed: "Changed or shut down", other: "Other" };
   const costBadges = (c) => {
     const arr = Array.isArray(c) ? c : c === "both" ? ["time", "money"] : (c === "time" || c === "money") ? [c] : [];
     return arr.map((x) => x === "time" ? `<span class="cost" title="Costs people time">⏱ time</span>` : `<span class="cost" title="Costs people money">$ money</span>`).join("");
@@ -107,10 +107,10 @@
     }
     $("#gate-form").addEventListener("submit", async (e) => {
       e.preventDefault();
-      const pass = $("#pass").value.trim();
+      const pass = $("#pass").value.trim().toLowerCase();  // capitalisation never matters
       if (!pass) return;
       if (!state.meta) state.meta = await loadMeta();
-      if (!state.meta) { msg.textContent = "No data yet. The first daily run hasn't finished."; return; }
+      if (!state.meta) { msg.textContent = "No data yet. The first weekly run hasn't finished."; return; }
       const btn = $("#gate-form button");
       btn.disabled = true; msg.textContent = "Checking…";
       try {
@@ -127,7 +127,7 @@
   function setupApp() {
     const days = state.index.days.map((d) => d.date).reverse();
     const sel = $("#day-select");
-    sel.innerHTML = days.map((d) => `<option value="${esc(d)}">${esc(fmtDate(d))}</option>`).join("");
+    sel.innerHTML = days.map((d) => `<option value="${esc(d)}">${esc(weekLabel(d))}</option>`).join("");
     state.date = days[0];
     sel.addEventListener("change", () => { state.date = sel.value; render(); });
     document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => {
@@ -170,11 +170,13 @@
     }
   }
 
-  // ------------------------------------------------------------------ today
-  function problemCard(p, day, problemsIndex) {
-    const byId = Object.fromEntries(day.items.map((it) => [it.id, it]));
+  // -------------------------------------------------------------- this week
+  const nicheChip = (n) => (n && n !== "General" ? `<span class="chip niche">${esc(n)}</span>` : "");
+
+  function problemCard(p, run, problemsIndex) {
+    const byId = Object.fromEntries(run.items.map((it) => [it.id, it]));
     const hist = problemsIndex[p.key];
-    const isNew = hist && hist.first_seen === day.date;
+    const isNew = hist && hist.first_seen === run.date;
     const seen = hist ? hist.days_seen : 1;
     const evidence = p.item_ids.map((id) => byId[id]).filter(Boolean);
     const extra = p.method === "ai" ? `<dl>
@@ -184,66 +186,74 @@
         ${(p.mvp_features || []).length ? `<div><dt>Bare-minimum MVP</dt><dd><ol class="mvp">${p.mvp_features.map((f) => `<li>${esc(f)}</li>`).join("")}</ol></dd></div>` : ""}</dl>` : "";
     const costs = p.costs || [...new Set(evidence.flatMap((it) => it.costs || []))];
     return `<article class="card">
-      <div class="meta">${fitBadge(p.saas_fit)}${isNew ? `<span class="new-badge">New</span>` : `<span class="chip">Seen ${seen} day${seen === 1 ? "" : "s"}</span>`}<span class="chip">${esc(p.theme || "")}</span>${costBadges(costs)}</div>
+      <div class="meta">${fitBadge(p.saas_fit)}${isNew ? `<span class="new-badge">New</span>` : `<span class="chip">Seen ${plural(seen, "week")}</span>`}${nicheChip(p.niche)}${costBadges(costs)}</div>
       <h3>${esc(p.title)}</h3>
       <p>${esc(p.summary)}</p>
       ${extra}
-      <div class="meta">${(p.sources || []).map((s) => `<span class="chip">${esc(srcLabel(s))}</span>`).join("")}<span class="muted">${evidence.length} mention${evidence.length === 1 ? "" : "s"}</span></div>
+      <div class="meta">${(p.sources || []).map((s) => `<span class="chip">${esc(srcLabel(s))}</span>`).join("")}<span class="muted">${plural(evidence.length, "lead")}</span></div>
       <details><summary>Evidence</summary><ul>${evidence.slice(0, 12).map((it) =>
-        `<li><a href="${safeUrl(it.url)}" target="_blank" rel="noopener noreferrer">${esc(it.title || it.text.slice(0, 90))}</a> <span class="muted">· ${esc(it.channel)}</span></li>`).join("")}</ul></details>
+        `<li><a href="${safeUrl(it.url)}" target="_blank" rel="noopener noreferrer">${esc(it.need || it.title)}</a> <span class="muted">· ${esc(it.channel)}</span></li>`).join("")}</ul></details>
       ${validateLinks(p.search_keyword || p.title)}
     </article>`;
   }
 
   function itemRow(it) {
+    const need = it.need && it.need !== it.title && !it.need.startsWith(it.title.replace(/…$/, "")) ? `<div class="need">“${esc(it.need)}”</div>` : "";
     return `<div class="item">
       <div class="t"><a href="${safeUrl(it.url)}" target="_blank" rel="noopener noreferrer">${esc(it.title || "(untitled)")}</a></div>
-      <div class="x">${esc(it.text.slice(0, 320))}${it.text.length > 320 ? "…" : ""}</div>
-      <div class="meta">${fitBadge(it.saas_fit)}<span class="chip">${esc(it.kind_label)}</span><span class="chip">${esc(it.channel)}</span>
-        ${it.rating ? `<span class="chip">${"★".repeat(it.rating)}</span>` : ""}${costBadges(it.costs)}
-        ${(it.complaints || []).slice(0, 3).map((c) => `<span class="chip">${esc(COMPLAINT_LABEL[c] || c)}</span>`).join("")}
-        ${(it.signals || []).slice(0, 3).map((s) => `<span class="chip">“${esc(s)}”</span>`).join("")}
-        <span class="score" title="Pain score: strength of complaint language + engagement">● ${esc(it.pain_score)}</span></div>
+      ${need}
+      <div class="x">${esc(it.text.slice(0, 280))}${it.text.length > 280 ? "…" : ""}</div>
+      <div class="meta">${fitBadge(it.saas_fit)}${nicheChip(it.niche)}<span class="chip">${esc(it.channel)}</span>${costBadges(it.costs)}
+        ${(it.signal_labels || []).slice(0, 3).map((s) => `<span class="chip sig">${esc(s)}</span>`).join("")}
+        <span class="score" title="Lead score: strength of the stated need + engagement">● ${esc(it.pain_score)}</span></div>
     </div>`;
   }
 
+  const nicheOptions = (list, cur) => `<option value="all">All niches</option>${list.map((n) => `<option ${n === cur ? "selected" : ""}>${esc(n)}</option>`).join("")}`;
+
   async function renderToday(main) {
-    const day = await getDay(state.date);
+    const run = await getDay(state.date);
     const probs = state.index.problems || {};
-    const status = Object.entries(day.sources || {});
+    const status = Object.entries(run.sources || {});
     const ok = status.filter(([, s]) => s.ok).length;
-    const themeCounts = {};
-    day.items.forEach((it) => it.themes.forEach((t) => { if (t !== "Other") themeCounts[t] = (themeCounts[t] || 0) + 1; }));
-    const topTheme = Object.entries(themeCounts).sort((a, b) => b[1] - a[1])[0];
-    const newCount = day.problems.filter((p) => probs[p.key]?.first_seen === day.date).length;
-    const highFit = day.items.filter((it) => it.saas_fit === "high").length;
+    const nicheCounts = {};
+    run.items.forEach((it) => { if (it.niche !== "General") nicheCounts[it.niche] = (nicheCounts[it.niche] || 0) + 1; });
+    const nichesSorted = Object.entries(nicheCounts).sort((a, b) => b[1] - a[1]);
+    const newCount = run.problems.filter((p) => probs[p.key]?.first_seen === run.date).length;
+    const highFit = run.items.filter((it) => it.saas_fit === "high").length;
     let fitFilter = "all"; try { fitFilter = sessionStorage.getItem("wtwn.fit") || "all"; } catch { /* ignore */ }
-    const shown = day.problems.filter((p) => fitFilter === "all" || p.saas_fit === fitFilter);
+    const nf = state.tniche || "all";
+    const shown = run.problems.filter((p) => (fitFilter === "all" || p.saas_fit === fitFilter) && (nf === "all" || p.niche === nf));
+    const leads = run.items.filter((it) => nf === "all" || it.niche === nf);
+    const filtered = sum(run.filtered);
 
     main.innerHTML = `
-      <h2>${esc(fmtDate(day.date))}</h2>
-      <p class="sub">${day.ai && day.ai.startsWith("ok") ? "Problems grouped and summarised by Claude." : "Problems grouped by shared keywords (add an ANTHROPIC_API_KEY secret for written summaries)."}</p>
+      <h2>${esc(weekLabel(run.date))}</h2>
+      <p class="sub">${run.ai && run.ai.startsWith("ok") ? "Problems named and written up by Claude from this week's leads."
+        : "Problems are grouped by who has them and what kind of problem it is. Add an ANTHROPIC_API_KEY secret for named problems with written summaries."}</p>
       <div class="tiles">
-        <div class="tile"><div class="label">Pain points found</div><div class="value">${day.items.length}</div><div class="note">from ${day.new_count} new posts scanned</div></div>
-        <div class="tile"><div class="label">Distinct problems</div><div class="value">${day.problems.length}</div><div class="note">${newCount} first seen today</div></div>
-        <div class="tile"><div class="label">High SaaS fit</div><div class="value">${day.items.length ? Math.round(100 * highFit / day.items.length) : 0}%</div><div class="note">${highFit} pain points</div></div>
-        <div class="tile"><div class="label">Loudest theme</div><div class="value" style="font-size:18px">${esc(topTheme ? topTheme[0] : "-")}</div><div class="note">${topTheme ? topTheme[1] + " mentions" : ""}</div></div>
+        <div class="tile"><div class="label">Leads this week</div><div class="value">${run.items.length}</div><div class="note">posts stating an unmet need, from ${(run.new_count || 0).toLocaleString()} read</div></div>
+        <div class="tile"><div class="label">Problem areas</div><div class="value">${run.problems.length}</div><div class="note">${newCount} first seen this week</div></div>
+        <div class="tile"><div class="label">Niches with leads</div><div class="value">${nichesSorted.length}</div><div class="note">${nichesSorted[0] ? `most: ${esc(nichesSorted[0][0])} (${nichesSorted[0][1]})` : ""}</div></div>
+        <div class="tile"><div class="label">High SaaS fit</div><div class="value">${run.items.length ? Math.round(100 * highFit / run.items.length) : 0}%</div><div class="note">${highFit} leads${filtered ? ` · ${filtered} promo/support posts removed` : ""}</div></div>
       </div>
       <h2>Top problems</h2>
       <div class="toolbar"><span class="muted small">SaaS fit</span>
-        <div class="seg" id="fit-seg">${["all", "high", "medium", "low"].map((f) => `<button data-f="${f}" aria-pressed="${f === fitFilter}">${f}</button>`).join("")}</div></div>
-      ${shown.length ? `<div class="cards">${shown.map((p) => problemCard(p, day, probs)).join("")}</div>` : `<div class="empty">No problems match.</div>`}
-      <h2>Loudest individual complaints</h2>
-      <div class="items">${day.items.slice(0, 15).map(itemRow).join("") || `<div class="empty">Nothing today.</div>`}</div>
+        <div class="seg" id="fit-seg">${["all", "high", "medium", "low"].map((f) => `<button data-f="${f}" aria-pressed="${f === fitFilter}">${f}</button>`).join("")}</div>
+        <select id="tniche" aria-label="Niche">${nicheOptions(nichesSorted.map(([n]) => n), nf)}</select></div>
+      ${shown.length ? `<div class="cards">${shown.map((p) => problemCard(p, run, probs)).join("")}</div>` : `<div class="empty">No problems match.</div>`}
+      <h2>Strongest individual leads</h2>
+      <div class="items">${leads.slice(0, 20).map(itemRow).join("") || `<div class="empty">Nothing this week.</div>`}</div>
       <h2>Sources</h2>
-      <div class="panel table-wrap"><table><thead><tr><th>Source</th><th>Status</th><th class="num">Items</th><th>Note</th></tr></thead><tbody>
-      ${status.map(([n, s]) => `<tr><td>${esc(srcLabel(n))}</td><td class="${s.ok ? "status-ok" : "status-bad"}">${s.ok ? "✓ ok" : "✕ failed"}</td><td class="num">${esc(s.count ?? 0)}</td><td class="muted small">${esc(s.error || s.note || "")}</td></tr>`).join("")}
-      </tbody></table><p class="muted small">${ok}/${status.length} sources responded. Generated ${esc(day.generated_at)}.</p></div>`;
+      <div class="panel table-wrap"><table><thead><tr><th>Source</th><th>Status</th><th class="num">Posts read</th><th class="num">Leads kept</th><th>Note</th></tr></thead><tbody>
+      ${status.map(([n, s]) => `<tr><td>${esc(srcLabel(n))}</td><td class="${s.ok ? "status-ok" : "status-bad"}">${s.ok ? "✓ ok" : "✕ failed"}</td><td class="num">${esc((s.read ?? "").toLocaleString())}</td><td class="num">${esc(s.count ?? 0)}</td><td class="muted small">${esc(s.error || s.note || "")}</td></tr>`).join("")}
+      </tbody></table><p class="muted small">${ok}/${status.length} sources responded. Generated ${esc(run.generated_at)}.</p></div>`;
     $("#fit-seg").addEventListener("click", (e) => {
       const f = e.target.closest("button")?.dataset.f; if (!f) return;
       try { sessionStorage.setItem("wtwn.fit", f); } catch { /* ignore */ }
       render();
     });
+    $("#tniche").addEventListener("change", (e) => { state.tniche = e.target.value; render(); });
   }
 
   // ----------------------------------------------------------------- trends
@@ -289,10 +299,11 @@
     return ch;
   }
 
-  function delta(days, getter, key) {
-    const last = days.slice(-7), prev = days.slice(-14, -7);
-    const a = last.reduce((s, d) => s + (getter(d)[key] || 0), 0);
-    const b = prev.reduce((s, d) => s + (getter(d)[key] || 0), 0);
+  // latest week against the week before
+  function delta(getter, key) {
+    const all = state.index.days;
+    const a = all.length ? (getter(all[all.length - 1])[key] || 0) : 0;
+    const b = all.length > 1 ? (getter(all[all.length - 2])[key] || 0) : 0;
     return { a, b, pct: b ? (a - b) / b : (a ? Infinity : 0) };
   }
 
@@ -302,64 +313,59 @@
     return `<span class="${pct > 0 ? "up" : "down"}">${pct > 0 ? "▲" : "▼"} ${Math.abs(Math.round(pct * 100))}%</span>`;
   }
 
+  function pickerChart(main, id, field, skip, stateKey, days, labels) {
+    const totals = {};
+    days.forEach((d) => Object.entries(d[field] || {}).forEach(([t, n]) => { if (t !== skip) totals[t] = (totals[t] || 0) + n; }));
+    const all = Object.entries(totals).sort((a, b) => b[1] - a[1]).map(([t]) => t);
+    const picked = (state[stateKey] || all.slice(0, 6)).filter((t) => totals[t]).slice(0, 8);
+    $(`#${id}-pick`).innerHTML = all.slice(0, 24).map((t) => `<button class="chip-btn" data-t="${esc(t)}" aria-pressed="${picked.includes(t)}">${esc(t)}</button>`).join("");
+    $(`#${id}-pick`).addEventListener("click", (e) => {
+      const t = e.target.closest("button")?.dataset.t; if (!t) return;
+      const cur = picked.slice(), i = cur.indexOf(t);
+      if (i >= 0) cur.splice(i, 1); else if (cur.length < 8) cur.push(t);
+      state[stateKey] = cur; render();
+    });
+    if (picked.length) lineChart($(`#${id}`), labels, picked.map((t) => ({ label: t, data: days.map((d) => (d[field] || {})[t] || 0) })));
+    else $(`#${id}`).parentElement.innerHTML = `<div class="empty">Pick one above.</div>`;
+    return all;
+  }
+
+  function risingTable(title, names, field) {
+    const rows = names.map((t) => ({ t, ...delta((d) => d[field] || {}, t) })).filter((r) => r.a >= 2)
+      .sort((x, y) => (y.a - y.b) - (x.a - x.b)).slice(0, 12);
+    return `<div class="panel"><strong>${title}</strong> <span class="muted small">latest week vs the week before</span>
+      <div class="table-wrap"><table><thead><tr><th>${title.replace("Rising ", "").replace(/^./, (c) => c.toUpperCase())}</th><th class="num">Latest</th><th class="num">Before</th><th class="num">Change</th></tr></thead><tbody>
+      ${rows.map((r) => `<tr><td>${esc(r.t)}</td><td class="num">${r.a}</td><td class="num">${r.b}</td><td class="num">${arrow(r.pct)}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">Not enough data yet.</td></tr>`}
+      </tbody></table></div></div>`;
+  }
+
   function renderTrends(main) {
     chartDefaults();
     const days = rangeDays();
     const labels = days.map((d) => shortDate(d.date));
-    const themeTotals = {};
-    days.forEach((d) => Object.entries(d.by_theme || {}).forEach(([t, n]) => { if (t !== "Other") themeTotals[t] = (themeTotals[t] || 0) + n; }));
-    const allThemes = Object.entries(themeTotals).sort((a, b) => b[1] - a[1]).map(([t]) => t);
-    const picked = (state.pickedThemes || allThemes.slice(0, 6)).filter((t) => themeTotals[t]).slice(0, 8);
     const sourcesAll = [...new Set(days.flatMap((d) => Object.keys(d.by_source || {})))];
-
-    const rising = allThemes.map((t) => ({ t, ...delta(state.index.days, (d) => d.by_theme || {}, t) }))
-      .filter((r) => r.a >= 3).sort((x, y) => (y.pct === Infinity) - (x.pct === Infinity) || y.pct - x.pct).slice(0, 10);
-    const kws = state.index.keywords || {};
-    const dates = state.index.days.map((d) => d.date);
-    const last7 = new Set(dates.slice(-7)), prev7 = new Set(dates.slice(-14, -7));
-    const risingKw = Object.entries(kws).map(([k, c]) => {
-      let a = 0, b = 0; Object.entries(c).forEach(([d, n]) => { if (last7.has(d)) a += n; else if (prev7.has(d)) b += n; });
-      return { k, a, b, pct: b ? (a - b) / b : (a ? Infinity : 0) };
-    }).filter((r) => r.a >= 3).sort((x, y) => (y.a - y.b) - (x.a - x.b)).slice(0, 15);
-
     main.innerHTML = `
       <h2>Trends</h2>
       <div class="toolbar">
-        <div class="seg" id="range-seg">${[[14, "14 days"], [30, "30 days"], [90, "90 days"], [0, "All"]].map(([v, l]) => `<button data-r="${v}" aria-pressed="${state.range === v}">${l}</button>`).join("")}</div>
-        <span class="muted small">${days.length} day${days.length === 1 ? "" : "s"} of data</span>
+        <div class="seg" id="range-seg">${[[8, "8 weeks"], [12, "12 weeks"], [26, "26 weeks"], [52, "1 year"], [0, "All"]].map(([v, l]) => `<button data-r="${v}" aria-pressed="${state.range === v}">${l}</button>`).join("")}</div>
+        <span class="muted small">${plural(days.length, "weekly run")} of data</span>
       </div>
-      ${days.length < 2 ? `<div class="empty">Trends appear after the second daily run. Check back tomorrow.</div>` : ""}
-      <div class="panel"><strong>Mentions per day, by theme</strong>
-        <div class="toolbar small" style="margin-top:8px">
-          <span class="muted">Themes (up to 8):</span>
-          <div id="theme-pick" class="chips">${allThemes.slice(0, 20).map((t) => `<button class="chip-btn" data-t="${esc(t)}" aria-pressed="${picked.includes(t)}">${esc(t)}</button>`).join("")}</div></div>
+      ${days.length < 2 ? `<div class="empty">Trends appear after the second weekly run.</div>` : ""}
+      <div class="panel"><strong>Leads per week, by niche</strong>
+        <div class="toolbar small" style="margin-top:8px"><span class="muted">Niches (up to 8):</span><div id="c-niches-pick" class="chips"></div></div>
+        <div class="chart-box"><canvas id="c-niches"></canvas></div></div>
+      <div class="panel" style="margin-top:12px"><strong>Leads per week, by problem area</strong>
+        <div class="toolbar small" style="margin-top:8px"><span class="muted">Problem areas (up to 8):</span><div id="c-themes-pick" class="chips"></div></div>
         <div class="chart-box"><canvas id="c-themes"></canvas></div></div>
+      <div class="grid2" style="margin-top:12px" id="rising"></div>
       <div class="grid2" style="margin-top:12px">
-        <div class="panel"><strong>Pain points per day, by source</strong><div class="chart-box"><canvas id="c-sources"></canvas></div></div>
-        <div class="panel"><strong>SaaS fit mix per day</strong><div class="chart-box"><canvas id="c-fit"></canvas></div></div>
-      </div>
-      <div class="grid2" style="margin-top:12px">
-        <div class="panel"><strong>Rising themes</strong> <span class="muted small">last 7 days vs previous 7</span>
-          <div class="table-wrap"><table><thead><tr><th>Theme</th><th class="num">Last 7d</th><th class="num">Prev 7d</th><th class="num">Change</th></tr></thead><tbody>
-          ${rising.map((r) => `<tr><td>${esc(r.t)}</td><td class="num">${r.a}</td><td class="num">${r.b}</td><td class="num">${arrow(r.pct)}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">Not enough data yet.</td></tr>`}
-          </tbody></table></div></div>
-        <div class="panel"><strong>Rising phrases</strong> <span class="muted small">two-word phrases gaining mentions</span>
-          <div class="table-wrap"><table><thead><tr><th>Phrase</th><th class="num">Last 7d</th><th class="num">Prev 7d</th><th class="num">Change</th></tr></thead><tbody>
-          ${risingKw.map((r) => `<tr><td>${esc(r.k)}</td><td class="num">${r.a}</td><td class="num">${r.b}</td><td class="num">${arrow(r.pct)}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">Not enough data yet.</td></tr>`}
-          </tbody></table></div></div>
+        <div class="panel"><strong>Leads per week, by source</strong><div class="chart-box"><canvas id="c-sources"></canvas></div></div>
+        <div class="panel"><strong>SaaS fit mix per week</strong><div class="chart-box"><canvas id="c-fit"></canvas></div></div>
       </div>`;
-
     $("#range-seg").addEventListener("click", (e) => { const r = e.target.closest("button")?.dataset.r; if (r != null) { state.range = +r; render(); } });
-    $("#theme-pick").addEventListener("click", (e) => {
-      const t = e.target.closest("button")?.dataset.t; if (!t) return;
-      const cur = picked.slice();
-      const i = cur.indexOf(t);
-      if (i >= 0) cur.splice(i, 1); else if (cur.length < 8) cur.push(t);
-      state.pickedThemes = cur; render();
-    });
-
-    lineChart($("#c-themes"), labels, picked.map((t) => ({ label: t, data: days.map((d) => (d.by_theme || {})[t] || 0) })));
-    if (!picked.length) $("#c-themes").parentElement.innerHTML = `<div class="empty">Pick a theme above.</div>`;
+    const niches = pickerChart(main, "c-niches", "by_niche", "General", "pickedNiches", days, labels);
+    const themes = pickerChart(main, "c-themes", "by_theme", "Other needs", "pickedThemes", days, labels);
+    $("#rising").innerHTML = risingTable("Rising niches", niches, "by_niche") + risingTable("Rising problem areas", themes, "by_theme");
     lineChart($("#c-sources"), labels, sourcesAll.slice(0, 8).map((s) => ({ label: srcLabel(s), data: days.map((d) => (d.by_source || {})[s] || 0) })), { type: "bar", stacked: true });
     lineChart($("#c-fit"), labels, ["high", "medium", "low"].map((f) => ({ label: f, data: days.map((d) => (d.by_fit || {})[f] || 0) })),
       { type: "bar", stacked: true, colors: [cssVar("--seq-3"), cssVar("--seq-2"), cssVar("--seq-1")] });
@@ -375,100 +381,103 @@
   }
 
   function renderProblems(main) {
-    const dates = state.index.days.map((d) => d.date).slice(-30);
-    const q = state.pq || "", fit = state.pfit || "all", sort = state.psort || "days_seen";
-    const rows = Object.entries(state.index.problems || {}).map(([key, p]) => ({
-      key, ...p, total: sum(p.counts), recent: dates.slice(-7).reduce((s, d) => s + (p.counts[d] || 0), 0),
-    })).filter((p) => (fit === "all" || p.saas_fit === fit) && (!q || (p.title + " " + (p.summary || "") + " " + (p.theme || "")).toLowerCase().includes(q.toLowerCase())));
+    const dates = state.index.days.map((d) => d.date).slice(-12);
+    const latest = dates[dates.length - 1];
+    const q = state.pq || "", fit = state.pfit || "all", sort = state.psort || "days_seen", nf = state.pniche || "all";
+    const all = Object.entries(state.index.problems || {}).map(([key, p]) => ({ key, ...p, total: sum(p.counts), recent: p.counts[latest] || 0 }));
+    const niches = [...new Set(all.map((p) => p.niche).filter((n) => n && n !== "General"))].sort();
+    const rows = all.filter((p) => (fit === "all" || p.saas_fit === fit) && (nf === "all" || p.niche === nf)
+      && (!q || (p.title + " " + (p.summary || "") + " " + (p.theme || "") + " " + (p.niche || "")).toLowerCase().includes(q.toLowerCase())));
     rows.sort((a, b) => (sort === "first_seen" || sort === "last_seen") ? b[sort].localeCompare(a[sort]) : (b[sort] - a[sort]) || (b.total - a.total));
 
     main.innerHTML = `
       <h2>Recurring problems</h2>
-      <p class="sub">Every problem ever detected. A problem that keeps showing up across many days and sources is the strongest signal that it's real and still unsolved.</p>
+      <p class="sub">Every problem ever detected. One that keeps coming back week after week, from different people and sources, is the strongest sign that it's real and still unsolved.</p>
       <div class="toolbar">
         <input id="pq" class="input" type="search" placeholder="Search problems" value="${esc(q)}">
         <div class="seg" id="pfit">${["all", "high", "medium", "low"].map((f) => `<button data-f="${f}" aria-pressed="${f === fit}">${f}</button>`).join("")}</div>
-        <select id="psort" aria-label="Sort">${[["days_seen", "Most days seen"], ["total", "Most mentions"], ["recent", "Most mentions, last 7 days"], ["last_seen", "Most recent"], ["first_seen", "Newest"]].map(([v, l]) => `<option value="${v}" ${v === sort ? "selected" : ""}>${l}</option>`).join("")}</select>
-        <span class="muted small">${rows.length} problems</span>
+        <select id="pniche" aria-label="Niche">${nicheOptions(niches, nf)}</select>
+        <select id="psort" aria-label="Sort">${[["days_seen", "Most weeks seen"], ["total", "Most leads"], ["recent", "Most leads, latest week"], ["last_seen", "Most recent"], ["first_seen", "Newest"]].map(([v, l]) => `<option value="${v}" ${v === sort ? "selected" : ""}>${l}</option>`).join("")}</select>
+        <span class="muted small">${plural(rows.length, "problem")}</span>
       </div>
       <div class="panel table-wrap"><table>
-        <thead><tr><th>Problem</th><th>Fit</th><th class="num">Days</th><th class="num">Mentions</th><th class="num">7d</th><th>Last 30 days</th><th>Last seen</th></tr></thead>
+        <thead><tr><th>Problem</th><th>Fit</th><th class="num">Weeks</th><th class="num">Leads</th><th class="num">Latest</th><th>Last 12 runs</th><th>Last seen</th></tr></thead>
         <tbody>${rows.slice(0, 300).map((p) => `<tr class="clickable" data-key="${esc(p.key)}">
-          <td><strong>${esc(p.title)}</strong><div class="muted small">${esc(p.theme || "")} · ${(p.sources || []).map(srcLabel).map(esc).join(", ")}</div>
-            <div class="small detail" hidden>${esc(p.summary || "")}<br><span class="muted">First seen ${esc(p.first_seen)}</span></div></td>
+          <td><strong>${esc(p.title)}</strong><div class="muted small">${(p.sources || []).map(srcLabel).map(esc).join(", ")}</div>
+            <div class="small detail" hidden>${esc(p.summary || "")}<br><span class="muted">First seen ${esc(p.first_seen)}</span>${p.search_keyword ? validateLinks(p.search_keyword) : ""}</div></td>
           <td>${fitBadge(p.saas_fit)}</td><td class="num">${p.days_seen}</td><td class="num">${p.total}</td><td class="num">${p.recent}</td>
           <td>${sparkline(p.counts, dates)}</td><td class="small">${esc(shortDate(p.last_seen))}</td></tr>`).join("") || `<tr><td colspan="7" class="muted">No problems yet.</td></tr>`}
         </tbody></table></div>`;
 
     $("#pq").addEventListener("input", (e) => { state.pq = e.target.value; clearTimeout(state.pqT); state.pqT = setTimeout(() => { render().then(() => { const el = $("#pq"); el.focus(); el.setSelectionRange(el.value.length, el.value.length); }); }, 250); });
     $("#pfit").addEventListener("click", (e) => { const f = e.target.closest("button")?.dataset.f; if (f) { state.pfit = f; render(); } });
+    $("#pniche").addEventListener("change", (e) => { state.pniche = e.target.value; render(); });
     $("#psort").addEventListener("change", (e) => { state.psort = e.target.value; render(); });
-    main.querySelectorAll("tr.clickable").forEach((tr) => tr.addEventListener("click", () => { const d = tr.querySelector(".detail"); d.hidden = !d.hidden; }));
+    main.querySelectorAll("tr.clickable").forEach((tr) => tr.addEventListener("click", (e) => {
+      if (e.target.closest("a, summary, details")) return;
+      const d = tr.querySelector(".detail"); d.hidden = !d.hidden;
+    }));
   }
-
 
   // ------------------------------------------------------------ idea mines
   function windowDates(n) { return state.index.days.map((d) => d.date).slice(-n); }
   function inWindow(counts, dates) { return dates.reduce((s, d) => s + ((counts || {})[d] || 0), 0); }
+  const weeksIn = (counts, dates) => dates.filter((d) => (counts || {})[d]).length;
 
   function renderMines(main) {
-    const win = state.mwin || 30;
+    const win = state.mwin || 12;
     const dates = windowDates(win);
-    const srcFilter = state.msrc || "all";
+    const chips = (obj, label = (t) => t) => Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([t, n]) => `<span class="chip">${esc(label(t))} ${n}</span>`).join("");
+    const quotes = (list) => `<ul class="quotes">${(list || []).map((x) => `<li><a href="${safeUrl(x.url)}" target="_blank" rel="noopener noreferrer">“${esc(x.need || x.text || x.title)}”</a> <span class="muted">· ${esc(x.where || "")} · ${esc(x.date || "")}</span></li>`).join("")}</ul>`;
 
-    const products = Object.values(state.index.products || {}).map((p) => {
-      const types = Object.fromEntries(Object.entries(p.types || {}).map(([t, c]) => [t, inWindow(c, dates)]).filter(([, n]) => n));
-      return { ...p, n: inWindow(p.counts, dates), typesW: types };
-    }).filter((p) => p.n && (srcFilter === "all" || p.source === srcFilter)).sort((a, b) => b.n - a.n);
-    const typeTotals = {};
-    products.forEach((p) => Object.entries(p.typesW).forEach(([t, n]) => { typeTotals[t] = (typeTotals[t] || 0) + n; }));
-    const srcs = [...new Set(Object.values(state.index.products || {}).map((p) => p.source))];
+    const niches = Object.entries(state.index.niches || {}).map(([name, e]) => ({
+      name, ...e, n: inWindow(e.counts, dates), weeks: weeksIn(e.counts, dates),
+      themesW: Object.fromEntries(Object.entries(e.themes || {}).map(([t, c]) => [t, inWindow(c, dates)]).filter(([, n]) => n)),
+    })).filter((r) => r.n && r.name !== "General").sort((a, b) => b.n - a.n);
 
-    const table = (hist, keyed) => Object.entries(hist || {}).map(([phrase, e]) => ({
-      phrase, ...e, n: inWindow(e.counts, dates), days: dates.filter((d) => (e.counts || {})[d]).length,
-    })).filter((r) => r.n).sort((a, b) => (b.days - a.days) || (b.n - a.n)).slice(0, 60).map((r) => `<tr>
+    const products = Object.values(state.index.products || {}).map((p) => ({
+      ...p, n: inWindow(p.counts, dates),
+      typesW: Object.fromEntries(Object.entries(p.types || {}).map(([t, c]) => [t, inWindow(c, dates)]).filter(([, n]) => n)),
+    })).filter((p) => p.n).sort((a, b) => b.n - a.n);
+
+    const sheetRows = Object.entries(state.index.spreadsheet_uses || {}).map(([phrase, e]) => ({
+      phrase, ...e, n: inWindow(e.counts, dates), weeks: weeksIn(e.counts, dates),
+    })).filter((r) => r.n).sort((a, b) => (b.weeks - a.weeks) || (b.n - a.n)).slice(0, 60).map((r) => `<tr>
         <td><strong>${esc(r.phrase)}</strong>${(r.examples || []).length ? `<div class="small muted">e.g. ${r.examples.slice(0, 2).map((x) =>
-          `<a href="${safeUrl(x.url)}" target="_blank" rel="noopener noreferrer">${esc((x.title || "").slice(0, 60))}</a>${x.industry ? ` (${esc(x.industry)})` : ""}`).join(" · ")}</div>` : ""}</td>
-        ${keyed ? `<td><a href="https://www.google.com/search?q=${q(r.keyword || r.phrase)}" target="_blank" rel="noopener noreferrer">${esc(r.keyword || r.phrase)} ↗</a></td>` : ""}
-        <td class="num">${r.n}</td><td class="num">${r.days}</td></tr>`).join("");
-
-    const dutyRows = table(state.index.duties, true);
-    const sheetRows = table(state.index.spreadsheet_uses, false);
+          `<a href="${safeUrl(x.url)}" target="_blank" rel="noopener noreferrer">${esc((x.title || "").slice(0, 60))}</a> (${esc(x.where || "")})`).join(" · ")}</div>` : ""}</td>
+        <td class="num">${r.n}</td><td class="num">${r.weeks}</td></tr>`).join("");
 
     main.innerHTML = `
       <h2>Idea mines</h2>
-      <p class="sub">Three proven ways of finding SaaS ideas, run automatically every day.</p>
-      <div class="toolbar"><div class="seg" id="mwin">${[[7, "7 days"], [30, "30 days"], [90, "90 days"], [3650, "All"]].map(([v, l]) => `<button data-w="${v}" aria-pressed="${win === v}">${l}</button>`).join("")}</div></div>
+      <p class="sub">Three other ways to read the same leads: who is struggling, which products people are trying to leave, and what is still being done in spreadsheets.</p>
+      <div class="toolbar"><div class="seg" id="mwin">${[[4, "4 weeks"], [12, "12 weeks"], [26, "26 weeks"], [5200, "All"]].map(([v, l]) => `<button data-w="${v}" aria-pressed="${win === v}">${l}</button>`).join("")}</div></div>
 
-      <h2>Incumbent gaps: what paying customers say is broken</h2>
-      <p class="sub">1–3★ reviews of the most popular apps (Apple App Store top-grossing, Shopify categories, WordPress) and upvoted GitHub feature requests.
-        Repeated “missing feature” or “too expensive for what it does” complaints point to a leaner alternative.</p>
-      <div class="toolbar">
-        <select id="msrc"><option value="all">All sources</option>${srcs.map((s) => `<option value="${esc(s)}" ${s === srcFilter ? "selected" : ""}>${esc(srcLabel(s))}</option>`).join("")}</select>
-        <div class="chips">${Object.entries(typeTotals).sort((a, b) => b[1] - a[1]).map(([t, n]) => `<span class="chip">${esc(COMPLAINT_LABEL[t] || t)} · ${n}</span>`).join("")}</div>
-      </div>
+      <h2>Niches with the most unmet needs</h2>
+      <p class="sub">Each row is a group of people, how many of them stated a need, and what kind. Click a row to read examples in their own words.</p>
       <div class="panel table-wrap"><table>
-        <thead><tr><th>Product</th><th>What people complain about</th><th class="num">Complaints</th></tr></thead>
-        <tbody>${products.slice(0, 80).map((p, i) => `<tr class="clickable" data-i="${i}">
-          <td><strong>${esc(p.name)}</strong><div class="small muted">${esc(srcLabel(p.source))}</div></td>
-          <td><div class="chips">${Object.entries(p.typesW).sort((a, b) => b[1] - a[1]).map(([t, n]) => `<span class="chip">${esc(COMPLAINT_LABEL[t] || t)} ${n}</span>`).join("")}</div>
-            <div class="detail small" hidden><ul class="quotes">${(p.quotes || []).map((x) => `<li>${x.rating ? `${"★".repeat(x.rating)} ` : ""}<a href="${safeUrl(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.title)}</a>: ${esc(x.text)} <span class="muted">(${esc(x.date)})</span></li>`).join("")}</ul></div></td>
-          <td class="num">${p.n}</td></tr>`).join("") || `<tr><td colspan="3" class="muted">No reviews in this window yet.</td></tr>`}</tbody></table>
-        <p class="small muted">Click a row for recent quotes.</p></div>
+        <thead><tr><th>Niche</th><th>What they need help with</th><th class="num">Leads</th><th class="num">Weeks</th></tr></thead>
+        <tbody>${niches.slice(0, 60).map((r) => `<tr class="clickable">
+          <td><strong>${esc(r.name)}</strong></td>
+          <td><div class="chips">${chips(r.themesW)}</div><div class="detail small" hidden>${quotes(r.examples)}</div></td>
+          <td class="num">${r.n}</td><td class="num">${r.weeks}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">Nothing in this window yet.</td></tr>`}</tbody></table></div>
 
       <div class="grid2" style="margin-top:12px">
-        <div class="panel table-wrap"><strong>Jobs → software ideas</strong>
-          <p class="small muted">Duties pulled from job posts across industries. Formula: duty + “management software”. Duties that show up in many posts are work companies already pay people for.</p>
-          <table><thead><tr><th>Duty</th><th>Search</th><th class="num">Posts</th><th class="num">Days</th></tr></thead>
-          <tbody>${dutyRows || `<tr><td colspan="4" class="muted">No job posts in this window yet.</td></tr>`}</tbody></table></div>
+        <div class="panel table-wrap"><strong>Products people want to leave</strong>
+          <p class="small muted">Named in “alternative to…”, “switching from…”, “outgrown…” posts. Many people leaving the same product for the same reason is an opening for a leaner alternative.</p>
+          <table><thead><tr><th>Product</th><th>Why, and who</th><th class="num">Mentions</th></tr></thead>
+          <tbody>${products.slice(0, 50).map((p) => `<tr class="clickable">
+            <td><strong>${esc(p.name)}</strong></td>
+            <td><div class="chips">${chips(p.typesW, (t) => COMPLAINT_LABEL[t] || t)}</div>
+              <div class="small muted">${Object.entries(p.niches || {}).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([n]) => esc(n)).join(", ")}</div>
+              <div class="detail small" hidden>${quotes(p.quotes)}</div></td>
+            <td class="num">${p.n}</td></tr>`).join("") || `<tr><td colspan="3" class="muted">Nothing in this window yet.</td></tr>`}</tbody></table></div>
         <div class="panel table-wrap"><strong>What people use spreadsheets for</strong>
-          <p class="small muted">“We track X in a spreadsheet.” Every one is a workflow that might deserve real software.</p>
-          <table><thead><tr><th>Used for</th><th class="num">Mentions</th><th class="num">Days</th></tr></thead>
+          <p class="small muted">“We track X in a spreadsheet.” Each one is a workflow that might deserve real software.</p>
+          <table><thead><tr><th>Used for</th><th class="num">Mentions</th><th class="num">Weeks</th></tr></thead>
           <tbody>${sheetRows || `<tr><td colspan="3" class="muted">Nothing yet.</td></tr>`}</tbody></table></div>
       </div>`;
 
     $("#mwin").addEventListener("click", (e) => { const w = e.target.closest("button")?.dataset.w; if (w) { state.mwin = +w; render(); } });
-    $("#msrc").addEventListener("change", (e) => { state.msrc = e.target.value; render(); });
     main.querySelectorAll("tr.clickable").forEach((tr) => tr.addEventListener("click", (e) => {
       if (e.target.closest("a")) return;
       const d = tr.querySelector(".detail"); d.hidden = !d.hidden;
@@ -477,26 +486,30 @@
 
   // ----------------------------------------------------------------- browse
   async function renderBrowse(main) {
-    const day = await getDay(state.date);
-    const q = state.bq || "", src = state.bsrc || "all", fit = state.bfit || "all", theme = state.btheme || "all";
-    const themes = [...new Set(day.items.flatMap((it) => it.themes))].sort();
-    const srcs = [...new Set(day.items.map((it) => it.source))];
-    const items = day.items.filter((it) => (src === "all" || it.source === src) && (fit === "all" || it.saas_fit === fit)
-      && (theme === "all" || it.themes.includes(theme)) && (!q || (it.title + " " + it.text).toLowerCase().includes(q.toLowerCase())));
+    const run = await getDay(state.date);
+    const q = state.bq || "", src = state.bsrc || "all", fit = state.bfit || "all", theme = state.btheme || "all", nf = state.bniche || "all";
+    const themes = [...new Set(run.items.flatMap((it) => it.themes))].sort();
+    const niches = [...new Set(run.items.map((it) => it.niche))].sort();
+    const srcs = [...new Set(run.items.map((it) => it.source))];
+    const items = run.items.filter((it) => (src === "all" || it.source === src) && (fit === "all" || it.saas_fit === fit)
+      && (theme === "all" || it.themes.includes(theme)) && (nf === "all" || it.niche === nf)
+      && (!q || (it.title + " " + it.text + " " + it.channel).toLowerCase().includes(q.toLowerCase())));
     main.innerHTML = `
-      <h2>Everything from ${esc(fmtDate(day.date))}</h2>
+      <h2>Every lead, ${esc(weekLabel(run.date).toLowerCase())}</h2>
       <div class="toolbar">
         <input id="bq" class="input" type="search" placeholder="Search text" value="${esc(q)}">
+        <select id="bniche" aria-label="Niche">${nicheOptions(niches, nf)}</select>
+        <select id="btheme"><option value="all">All problem areas</option>${themes.map((t) => `<option ${t === theme ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>
         <select id="bsrc"><option value="all">All sources</option>${srcs.map((s) => `<option value="${esc(s)}" ${s === src ? "selected" : ""}>${esc(srcLabel(s))}</option>`).join("")}</select>
-        <select id="btheme"><option value="all">All themes</option>${themes.map((t) => `<option ${t === theme ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>
         <select id="bfit">${["all", "high", "medium", "low"].map((f) => `<option value="${f}" ${f === fit ? "selected" : ""}>${f === "all" ? "Any SaaS fit" : "SaaS fit: " + f}</option>`).join("")}</select>
-        <span class="muted small">${items.length} of ${day.items.length}</span>
+        <span class="muted small">${items.length} of ${run.items.length}</span>
       </div>
       <div class="items">${items.slice(0, 400).map(itemRow).join("") || `<div class="empty">Nothing matches.</div>`}</div>`;
     const re = () => render();
     $("#bq").addEventListener("input", (e) => { state.bq = e.target.value; clearTimeout(state.bqT); state.bqT = setTimeout(() => re().then(() => { const el = $("#bq"); el.focus(); el.setSelectionRange(el.value.length, el.value.length); }), 250); });
     $("#bsrc").addEventListener("change", (e) => { state.bsrc = e.target.value; re(); });
     $("#btheme").addEventListener("change", (e) => { state.btheme = e.target.value; re(); });
+    $("#bniche").addEventListener("change", (e) => { state.bniche = e.target.value; re(); });
     $("#bfit").addEventListener("change", (e) => { state.bfit = e.target.value; re(); });
   }
 
@@ -504,38 +517,34 @@
   function renderAbout(main) {
     main.innerHTML = `<div class="prose">
       <h2>How it works</h2>
-      <p>Once a day a GitHub Action scans public places where people describe problems, scores each post for "unmet need" language, groups similar complaints into problems, and adds them to the history you see here.</p>
+      <p>Every Sunday a GitHub Action reads the past week's posts in places where people who do a job talk to each other, keeps only the posts where someone states a need that isn't being met, works out who they are (the niche) and what kind of problem it is, and adds the result to the history you see here.</p>
       <h2>Where it looks, and why</h2>
       <ul>
-        <li><strong>Reddit</strong> (45 niche business &amp; profession subreddits): people asking “is there a tool…”, “I wish there was…”, “would pay for…”.</li>
-        <li><strong>Hacker News</strong>: Ask HN threads and comments with the same phrasing, plus “we built an internal tool” (companies building it themselves = demand).</li>
-        <li><strong>Stack Exchange</strong> (Software Recommendations, Web Apps, Super User…): explicit requests for software that may not exist.</li>
-        <li><strong>1–2★ App Store reviews</strong> of popular business apps: what incumbents get wrong.</li>
-        <li><strong>1–2★ Shopify App Store reviews</strong> and <strong>WordPress plugin reviews</strong>: merchants and site owners stuck with a tool that doesn't fit.</li>
-        <li><strong>Highly upvoted GitHub feature requests</strong>: needs inside existing tools that maintainers aren't meeting.</li>
-        <li><strong>Job posts</strong> describing repetitive manual work (data entry, reconciliation, chasing): if a company pays a person to do it, software might do it cheaper.</li>
+        <li><strong>Reddit communities of practitioners</strong> (about 160, grouped into some 50 niches: dental practices, landlords, HVAC contractors, bookkeepers, restaurant owners, teachers, caregivers…). The whole week of posts is read, not a keyword search, so “how do you all handle X?” is caught as well as “is there a tool for X?”.</li>
+        <li><strong>Merchant and professional forums</strong>: the Shopify Community (merchants asking “is there an app that…”), Spiceworks (IT admins asking for software), Mac Power Users, and the Make community (workflows people can't automate).</li>
+        <li><strong>Freelance gigs</strong> on Freelancer.com where a business pays for a custom tool or for repetitive manual work. Nothing off the shelf fit, and there's a budget on the table.</li>
+        <li><strong>Hacker News</strong>: Ask HN posts, comments using an unambiguous need phrase, and every reply in “what problem do you wish was solved?” threads.</li>
+        <li><strong>Stack Exchange Software Recommendations</strong>: every question is someone who looked for software and couldn't find it.</li>
+        <li><strong>Bluesky</strong>: “I wish there was an app that…” from the general public.</li>
       </ul>
-      <h2>The three classic methods, automated</h2>
+      <h2>What counts as a lead</h2>
+      <p>A post is kept only if it does at least one of these: asks for a tool, wishes something existed, says they'd pay, says nothing on the market fits, asks how others cope, describes doing something by hand or in a spreadsheet that has become painful, or wants to leave a named product. Removed on purpose: people promoting or validating their own product, and one-product support questions (“won't load after the update”).</p>
+      <h2>Reading it</h2>
       <ul>
-        <li><strong>Job Search Method</strong>: every day a headless browser runs a few rotating industry searches on LinkedIn, Indeed, ZipRecruiter, Glassdoor, Monster, Dice, USAJOBS and Google Jobs (plus The Muse and remote boards), opens the top postings, and reads their listed duties. Sites that block automated browsers are shown as failed under Sources for that day. Job posts across industries are read for their listed duties (“schedule service appointments”, “ensure compliance with safety regulations”), each turned into a “… management software” search. See <em>Idea mines</em>.</li>
-        <li><strong>App Store Method</strong>: each day the most popular apps per category are found fresh (top-grossing Business/Productivity/Finance iPhone apps, popular Shopify apps per category, popular WordPress plugins) and their 1–3★ reviews are mined for missing features, usability, price and integration complaints.</li>
-        <li><strong>What-They're-Using-Excel-For Method</strong>: phrases like “we track X in a spreadsheet” are collected and counted.</li>
-        <li><strong>Review mining with AI</strong>: with an Anthropic key, Claude groups the day's evidence into problems and writes who has them, why tools fail them, whether they cost time or money, and a 3-feature MVP.</li>
-      </ul>
-      <h2>Reading the scores</h2>
-      <ul>
-        <li><strong>Pain score</strong> adds up strong-need phrases (“would pay”, “is there a tool”, “manually”, “too expensive”…) and engagement (upvotes, comments, reactions).</li>
-        <li><strong>SaaS fit</strong>: <em>high</em> means software clearly helps; <em>low</em> means the problem is structural or physical. Low-fit problems are kept on purpose when many people share them.</li>
-        <li><strong>Days seen</strong> on the Problems tab is the best signal: the same pain, from different people, day after day.</li>
+        <li><strong>Niche</strong>: who has the problem. From the community the post came from, or from the text (“I run a landscaping company”).</li>
+        <li><strong>The quote</strong> on each lead is the sentence where the person states the need.</li>
+        <li><strong>SaaS fit</strong>: <em>high</em> means software clearly helps; <em>low</em> means the problem is structural or physical. Low-fit problems are kept when many people share them.</li>
+        <li><strong>Weeks seen</strong> on the Problems tab is the best signal: the same need, from different people, week after week.</li>
+        <li><strong>⏱ time / $ money</strong>: what the problem costs them. Those are the problems people pay to remove.</li>
       </ul>
       <h2>Validating an idea from here</h2>
       <ol>
-        <li>Open the evidence links and read the replies. Are others saying “same”?</li>
-        <li>Check the problem appears in more than one <em>source</em>, not only one subreddit.</li>
-        <li>Look for an incumbent with bad reviews: that's a market that already pays.</li>
+        <li>Open the evidence links and read the replies. Are others saying “same”? Did anyone name a tool that solves it?</li>
+        <li>Check the problem appears in more than one source and in more than one week.</li>
         <li>Use the <em>Validate</em> links on each problem: are there ads and competitors for the search phrase? Is search volume steady or rising?</li>
-        <li>Before building, put up a one-page landing page with an email form, share it where the complainers are, and aim for 20–30 sign-ups.</li>
+        <li>Look at <em>Products people want to leave</em> for an incumbent in that niche: that's a market that already pays.</li>
         <li>Reply to or DM a few posters and ask how they handle it today and what it costs them.</li>
+        <li>Before building, put up a one-page landing page with an email form, share it where those people are, and aim for 20–30 sign-ups.</li>
       </ol>
       <p class="muted small">Index last updated ${esc(state.index.updated || "")}.</p>
     </div>`;

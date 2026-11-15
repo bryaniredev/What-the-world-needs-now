@@ -2,5 +2,3 @@ requests>=2.31
 cryptography>=42
 beautifulsoup4>=4.12
 anthropic>=1.0
-lxml>=5
-playwright>=1.48

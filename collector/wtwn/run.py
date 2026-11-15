@@ -1,6 +1,6 @@
-"""Daily run: collect -> score -> cluster -> merge into history -> encrypt.
+"""Weekly run: collect -> keep posts that state a need -> group -> merge into history -> encrypt.
 
-    SITE_PASSPHRASE=... python -m wtwn.run            # normal daily run
+    SITE_PASSPHRASE=... python -m wtwn.run            # normal weekly run
     SITE_PASSPHRASE=... python -m wtwn.run --fixture tests/fixtures/raw.json --date 2026-01-01
 """
 import argparse
@@ -24,6 +24,7 @@ def log(*a):
 
 class Store:
     def __init__(self, data_dir: Path, state_dir: Path, passphrase: str):
+        passphrase = passphrase.strip().lower()  # the site does the same, so capitalisation never matters
         self.data, self.state_dir = data_dir, state_dir
         (self.data / "days").mkdir(parents=True, exist_ok=True)
         self.state_dir.mkdir(parents=True, exist_ok=True)
@@ -47,7 +48,10 @@ class Store:
         p.write_text(json.dumps(crypto.encrypt_obj(self.key, obj)))
 
     def index(self):
-        return self._read(self.data / "index.json", {"days": [], "problems": {}, "keywords": {}})
+        return self._read(self.data / "index.json", {"days": [], "problems": {}, "keywords": {}, "niches": {}, "products": {}, "spreadsheet_uses": {}})
+
+    def day(self, date):
+        return self._read(self.data / "days" / f"{date}.json", None)
 
     def state(self):
         return self._read(self.state_dir / "state.json", {"seen": {}})
@@ -67,136 +71,175 @@ def collect(cfg, since):
             continue
         t0 = time.time()
         log(f"[{name}] collecting...")
-        got = fn(scfg, since, http, status)
+        try:
+            got = fn(scfg, since, http, status)
+        except Exception as e:  # noqa: BLE001  (a collector bug must not sink the run)
+            got, status[name] = [], {"ok": False, "count": 0, "error": f"{type(e).__name__}: {e}"[:300]}
         status[name]["seconds"] = round(time.time() - t0, 1)
         log(f"[{name}] {status[name]}")
         items.extend(got)
     return items, status
 
 
-def build_day(date, raw, status, cfg, index, state):
+_DROP_FIELDS = ("keep", "implied", "niche_hint", "dropped")
+
+
+def build_run(date, raw, status, cfg, index, state, previous=None):
     seen = state.setdefault("seen", {})
     fresh = [it for it in raw if it["id"] not in seen]
-    scored = [analyze.score_item(it) for it in fresh]
-    keep = [it for it in scored if analyze.keep_item(it, cfg.get("min_pain_score", 3))]
-    keep.sort(key=lambda x: -x["pain_score"])
-    keep = keep[: cfg.get("max_items_per_day", 400)]
+    min_strong = cfg.get("min_signal_strength", 3)
+
+    kept, dropped, sheets, read_by_source = [], Counter(), {}, Counter()
     for it in fresh:
+        read_by_source[it["source"]] += 1
+        analyze.score_item(it, min_strong)
+        if it.get("dropped"):
+            dropped[it["dropped"]] += 1
+        full = f"{it['title']}\n{it['text']}"
+        # What people use spreadsheets for: any post, whether or not it is a complaint.
+        if it.get("dropped") != "promo" and analyze._SHEET.search(full):
+            for u in analyze.spreadsheet_uses_for(full):
+                e = sheets.setdefault(u, {"phrase": u, "count": 0, "examples": []})
+                e["count"] += 1
+                if len(e["examples"]) < 3:
+                    e["examples"].append({"title": analyze.short(it["title"] or it["text"], 80), "url": it["url"], "where": it["channel"]})
+        if it["keep"]:
+            kept.append(it)
+
+    # A second run on the same date adds to the first instead of replacing it.
+    if previous:
+        have = {it["id"] for it in kept}
+        kept += [it for it in previous.get("items", []) if it["id"] not in have]
+        for r in previous.get("spreadsheet_uses", []):
+            e = sheets.setdefault(r["phrase"], {"phrase": r["phrase"], "count": 0, "examples": []})
+            e["count"] += r["count"]
+            e["examples"] = (e["examples"] + r["examples"])[:3]
+    kept.sort(key=lambda x: -x["pain_score"])
+    kept = kept[: cfg.get("max_items_per_run", 600)]
+    for it in kept:
         seen[it["id"]] = date
-    cutoff = (datetime.fromisoformat(date) - timedelta(days=120)).strftime("%Y-%m-%d")
+    cutoff = (datetime.fromisoformat(date) - timedelta(days=200)).strftime("%Y-%m-%d")
     state["seen"] = {k: v for k, v in seen.items() if v >= cutoff}
 
-    problems, ai_note = ai.refine(keep, index.get("problems", {}), cfg.get("ai", {}))
+    for name, n in read_by_source.items():
+        if name in status:
+            status[name]["read"] = n
+            status[name]["count"] = sum(1 for it in kept if it["source"] == name)
+
+    problems, ai_note = ai.refine(kept, index.get("problems", {}), cfg.get("ai", {}))
     if problems is None:
-        log(f"[ai] {ai_note}; using keyword clusters")
-        problems = analyze.heuristic_clusters(keep)
+        log(f"[ai] {ai_note}; grouping by niche and problem area")
+        problems = analyze.niche_clusters(kept)
     else:
         log(f"[ai] {ai_note}: {len(problems)} problems")
 
-    # Job Search Method: duties from every job post, not only the "manual work" ones.
-    duties = {}
-    for it in scored:
-        for d in it.get("duties", []):
-            e = duties.setdefault(d, {"phrase": d, "keyword": analyze.software_keyword(d), "count": 0, "examples": []})
-            e["count"] += 1
-            if len(e["examples"]) < 3 and all(x["url"] != it["url"] for x in e["examples"]):
-                e["examples"].append({"title": it["title"], "url": it["url"], "where": it["channel"], "industry": it.get("industry")})
-    # What-They're-Using-Excel-For Method
-    sheets = {}
-    for it in scored:
-        for u in it.get("spreadsheet_uses", []):
-            e = sheets.setdefault(u, {"phrase": u, "count": 0, "examples": []})
-            e["count"] += 1
-            if len(e["examples"]) < 3 and all(x["url"] != it["url"] for x in e["examples"]):
-                e["examples"].append({"title": it["title"], "url": it["url"], "where": it["channel"]})
-
-    for it in keep:
+    for it in kept:
         it["text"] = it["text"][:700]
-        it.pop("duties", None)
+        for f in _DROP_FIELDS:
+            it.pop(f, None)
     return {
-        "duties": sorted(duties.values(), key=lambda e: -e["count"])[:150],
-        "spreadsheet_uses": sorted(sheets.values(), key=lambda e: -e["count"])[:80],
         "date": date,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "sources": status,
         "ai": ai_note,
         "raw_count": len(raw),
         "new_count": len(fresh),
+        "filtered": dict(dropped),
         "problems": problems,
-        "items": keep,
+        "items": kept,
+        "spreadsheet_uses": sorted(sheets.values(), key=lambda e: -e["count"])[:120],
     }
 
 
-def merge_index(index, day):
-    date, items = day["date"], day["items"]
+def _trim(d, n, weight):
+    if len(d) > n:
+        keep = sorted(d, key=weight, reverse=True)[:n]
+        return {k: d[k] for k in keep}
+    return d
+
+
+def merge_index(index, run):
+    date, items = run["date"], run["items"]
     summary = {
         "date": date,
         "total": len(items),
+        "read": run.get("new_count", 0),
         "by_source": dict(Counter(it["source"] for it in items)),
-        "by_theme": dict(Counter(t for it in items for t in it["themes"])),
+        "by_niche": dict(Counter(it["niche"] for it in items)),
+        "by_theme": dict(Counter(it["themes"][0] for it in items)),
         "by_fit": dict(Counter(it["saas_fit"] for it in items)),
-        "by_kind": dict(Counter(it["kind"] for it in items)),
-        "by_complaint": dict(Counter(c for it in items for c in it.get("complaints", []))),
+        "by_signal": dict(Counter(s for it in items for s in it["signals"])),
         "by_cost": dict(Counter(c for it in items for c in it.get("costs", []))),
-        "top": [p["title"] for p in day["problems"][:5]],
+        "top": [p["title"] for p in run["problems"][:5]],
     }
-    index["days"] = [d for d in index["days"] if d["date"] != date] + [summary]
-    index["days"].sort(key=lambda d: d["date"])
+    index["days"] = sorted([d for d in index.get("days", []) if d["date"] != date] + [summary], key=lambda d: d["date"])
 
     probs = index.setdefault("problems", {})
-    for p in day["problems"]:
+    for p in run["problems"]:
         e = probs.setdefault(p["key"], {"title": p["title"], "first_seen": date, "counts": {}, "scores": {}})
-        e.update({"title": p["title"], "theme": p.get("theme"), "saas_fit": p.get("saas_fit"),
-                  "last_seen": max(e.get("last_seen", date), date), "summary": p.get("summary", "")})
+        e.update({"title": p["title"], "theme": p.get("theme"), "niche": p.get("niche"), "saas_fit": p.get("saas_fit"),
+                  "last_seen": max(e.get("last_seen", date), date), "summary": p.get("summary", ""),
+                  "search_keyword": p.get("search_keyword")})
         e["first_seen"] = min(e["first_seen"], date)
         e["counts"][date] = len(p["item_ids"])
         e["scores"][date] = p["score"]
         e["sources"] = sorted(set(e.get("sources", [])) | set(p.get("sources", [])))
         e["days_seen"] = len(e["counts"])
 
+    # Who has problems: one row per niche, with what kind and a few examples in their words.
+    niches = index.setdefault("niches", {})
+    for n in niches.values():
+        n["counts"].pop(date, None)
+        for t in n["themes"].values():
+            t.pop(date, None)
+    for it in items:
+        e = niches.setdefault(it["niche"], {"counts": {}, "themes": {}, "examples": []})
+        e["counts"][date] = e["counts"].get(date, 0) + 1
+        th = e["themes"].setdefault(it["themes"][0], {})
+        th[date] = th.get(date, 0) + 1
+    for niche, e in niches.items():
+        top = [it for it in items if it["niche"] == niche][:4]
+        fresh = [{"date": date, "need": it["need"], "url": it["url"], "where": it["channel"]} for it in top]
+        urls = {x["url"] for x in fresh}
+        e["examples"] = (fresh + [x for x in e["examples"] if x["url"] not in urls and x["date"] != date])[:6]
+
+    # Products people say they want to leave, and why.
+    products = index.setdefault("products", {})
+    for e in products.values():
+        e["counts"].pop(date, None)
+        for t in e["types"].values():
+            t.pop(date, None)
+    for it in items:
+        for name in it.get("products", []):
+            e = products.setdefault(name.lower(), {"name": name, "counts": {}, "types": {}, "niches": {}, "quotes": []})
+            e["counts"][date] = e["counts"].get(date, 0) + 1
+            e["niches"][it["niche"]] = e["niches"].get(it["niche"], 0) + 1
+            for t in it.get("complaints", []) or ["other"]:
+                e["types"].setdefault(t, {})[date] = e["types"].get(t, {}).get(date, 0) + 1
+            if all(q["url"] != it["url"] for q in e["quotes"]):
+                e["quotes"] = ([{"date": date, "title": it["title"], "text": it["need"], "url": it["url"], "where": it["channel"]}] + e["quotes"])[:8]
+    index["products"] = _trim(products, 500, lambda k: sum(products[k]["counts"].values()))
+
+    sheets = index.setdefault("spreadsheet_uses", {})
+    for r in run.get("spreadsheet_uses", []):
+        e = sheets.setdefault(r["phrase"], {"counts": {}, "examples": []})
+        e["counts"][date] = r["count"]
+        urls, merged = set(), []
+        for x in r["examples"] + e["examples"]:
+            if x.get("url") not in urls:
+                urls.add(x.get("url"))
+                merged.append(x)
+        e["examples"] = merged[:4]
+    index["spreadsheet_uses"] = _trim(sheets, 600, lambda k: (len(sheets[k]["counts"]), sum(sheets[k]["counts"].values())))
+
     kws = index.setdefault("keywords", {})
-    today = Counter(k for it in items for k in it["keywords"] if " " in k)
-    for k, n in today.items():
+    for k, n in Counter(k for it in items for k in it.get("keywords", [])).items():
         if n >= 2:
             kws.setdefault(k, {})[date] = n
-    if len(kws) > 600:
-        ranked = sorted(kws, key=lambda k: -sum(kws[k].values()))
-        index["keywords"] = {k: kws[k] for k in ranked[:600]}
-    # Incumbent gaps: complaints per product from reviews and feature requests.
-    products = index.setdefault("products", {})
-    for it in items:
-        if it["kind"] not in ("review", "feature_request"):
-            continue
-        k = f"{it['source']}|{it['channel']}"
-        e = products.setdefault(k, {"name": it["channel"], "source": it["source"], "counts": {}, "types": {}, "quotes": []})
-        e["counts"][date] = e["counts"].get(date, 0) + 1
-        for t in it.get("complaints", []) or ["other"]:
-            e["types"].setdefault(t, {})[date] = e["types"].get(t, {}).get(date, 0) + 1
-        if not any(q["text"] == it["text"][:280] for q in e["quotes"]):
-            e["quotes"] = ([{"date": date, "title": it["title"], "text": it["text"][:280], "url": it["url"],
-                             "rating": it.get("rating"), "types": it.get("complaints", [])}] + e["quotes"])[:8]
-    if len(products) > 500:
-        ranked = sorted(products, key=lambda k: -sum(products[k]["counts"].values()))
-        index["products"] = {k: products[k] for k in ranked[:500]}
+    index["keywords"] = _trim(kws, 600, lambda k: sum(kws[k].values()))
 
-    for field, rows in (("duties", day.get("duties", [])), ("spreadsheet_uses", day.get("spreadsheet_uses", []))):
-        hist = index.setdefault(field, {})
-        for r in rows:
-            e = hist.setdefault(r["phrase"], {"counts": {}, "examples": []})
-            e["counts"][date] = r["count"]
-            if "keyword" in r:
-                e["keyword"] = r["keyword"]
-            seen_urls, merged = set(), []
-            for x in r["examples"] + e["examples"]:
-                if x.get("url") not in seen_urls:
-                    seen_urls.add(x.get("url"))
-                    merged.append(x)
-            e["examples"] = merged[:4]
-        if len(hist) > 600:
-            ranked = sorted(hist, key=lambda k: (-len(hist[k]["counts"]), -sum(hist[k]["counts"].values())))
-            index[field] = {k: hist[k] for k in ranked[:600]}
-
-    index["updated"] = day["generated_at"]
+    index["cadence"] = "weekly"
+    index["updated"] = run["generated_at"]
     return index
 
 
@@ -219,16 +262,16 @@ def main(argv=None):
         raw, status = json.loads(Path(args.fixture).read_text()), {"fixture": {"ok": True}}
         status["fixture"]["count"] = len(raw)
     else:
-        since = time.time() - cfg.get("lookback_hours", 30) * 3600
+        since = time.time() - cfg.get("lookback_days", 8) * 86400
         raw, status = collect(cfg, since)
 
     index, state = store.index(), store.state()
-    day = build_day(date, raw, status, cfg, index, state)
-    index = merge_index(index, day)
-    store.save(day, index, state)
+    run = build_run(date, raw, status, cfg, index, state, previous=store.day(date))
+    index = merge_index(index, run)
+    store.save(run, index, state)
     ok = sum(1 for s in status.values() if s.get("ok"))
-    log(f"Done {date}: {len(raw)} raw, {day['new_count']} new, {len(day['items'])} kept, "
-        f"{len(day['problems'])} problems, {ok}/{len(status)} sources ok")
+    log(f"Done {date}: {len(raw)} posts read, {run['new_count']} not seen before, {len(run['items'])} kept as leads "
+        f"(filtered out: {run['filtered']}), {len(run['problems'])} problems, {ok}/{len(status)} sources ok")
     if ok == 0:
         raise SystemExit("Every source failed; check the log above.")
 

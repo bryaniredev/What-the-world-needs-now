@@ -1,277 +1,403 @@
 {
-  "_comment": "Edit this file to tune where the daily run looks. Every source is optional; a failing source is logged and skipped.",
-  "lookback_hours": 30,
-  "max_items_per_day": 400,
-  "min_pain_score": 3,
-  "hackernews": {
-    "enabled": true,
-    "phrases": [
-      "I wish there was",
-      "is there a tool",
-      "is there an app",
-      "I would pay for",
-      "I'd pay for",
-      "why is there no",
-      "still no good way",
-      "does anyone know a tool",
-      "we built an internal tool",
-      "spreadsheet hell",
-      "so frustrating",
-      "alternative to",
-      "use a spreadsheet to",
-      "track it in a spreadsheet",
-      "we pay someone to"
-    ],
-    "hits_per_phrase": 40
-  },
+  "_comment": "Edit this file to tune where the weekly run looks. Every source is optional; one that fails is logged and skipped.",
+  "lookback_days": 8,
+  "max_items_per_run": 600,
+  "min_signal_strength": 3,
   "reddit": {
     "enabled": true,
-    "subreddits": [
-      "smallbusiness",
-      "Entrepreneur",
-      "SaaS",
-      "startups",
-      "sidehustle",
-      "freelance",
-      "ecommerce",
-      "shopify",
-      "EtsySellers",
-      "AmazonSeller",
-      "realtors",
-      "PropertyManagement",
-      "landlord",
-      "Accounting",
-      "bookkeeping",
-      "msp",
-      "sysadmin",
-      "ITManagers",
-      "projectmanagement",
-      "marketing",
-      "socialmedia",
-      "PPC",
-      "SEO",
-      "recruiting",
-      "humanresources",
-      "Teachers",
-      "nursing",
-      "medicine",
-      "Dentistry",
-      "Contractor",
-      "Construction",
-      "restaurateur",
-      "KitchenConfidential",
-      "Truckers",
-      "logistics",
-      "nonprofit",
-      "lawyers",
-      "Insurance",
-      "photography",
-      "weddingplanning",
-      "personalfinance",
-      "productivity",
-      "Notion",
-      "excel",
-      "webdev"
-    ],
+    "_comment": "Communities of people who do the work, grouped by niche. The whole week of posts is read and only posts that state an unmet need are kept. Add or remove communities freely; a name starting with _ means 'work out the niche from the post'. No login needed (uses the public Arctic Shift archive); if REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET secrets exist the official API is used instead.",
+    "max_pages_per_community": 5,
+    "communities": {
+      "Dental practices": [
+        "Dentistry",
+        "DentalHygiene",
+        "DentalAssistant"
+      ],
+      "Veterinary clinics": [
+        "veterinaryprofession",
+        "VetTech"
+      ],
+      "Pharmacies": [
+        "pharmacy"
+      ],
+      "Therapists & counsellors": [
+        "therapists",
+        "psychotherapy"
+      ],
+      "Medical practices & clinics": [
+        "medicine",
+        "FamilyMedicine",
+        "healthIT",
+        "CodingandBilling",
+        "physicaltherapy",
+        "optometry",
+        "Chiropractic"
+      ],
+      "Nursing & home care": [
+        "nursing",
+        "hospice"
+      ],
+      "Short-term rental hosts": [
+        "airbnb_hosts",
+        "ShortTermRentals"
+      ],
+      "Landlords & property managers": [
+        "Landlord",
+        "PropertyManagement",
+        "realestateinvesting"
+      ],
+      "Real estate agents": [
+        "realtors",
+        "CommercialRealEstate"
+      ],
+      "HVAC, plumbing & electrical": [
+        "HVAC",
+        "Plumbing",
+        "electricians"
+      ],
+      "Landscaping & lawn care": [
+        "landscaping",
+        "LawnCareBusiness",
+        "arborists"
+      ],
+      "Cleaning & home services": [
+        "sweatystartup",
+        "CleaningBusiness",
+        "pressurewashing",
+        "handyman"
+      ],
+      "Construction & contractors": [
+        "Contractor",
+        "Construction",
+        "ConstructionManagers",
+        "estimators",
+        "Roofing",
+        "Carpentry"
+      ],
+      "Auto repair & dealerships": [
+        "AutoDetailing",
+        "askcarsales",
+        "mechanic"
+      ],
+      "Restaurants, bars & cafés": [
+        "restaurateur",
+        "restaurantowners",
+        "BarOwners",
+        "KitchenConfidential",
+        "foodtrucks",
+        "Chefit"
+      ],
+      "Trucking & freight": [
+        "Truckers",
+        "FreightBrokers",
+        "HotShotTrucking"
+      ],
+      "Logistics & warehousing": [
+        "logistics",
+        "supplychain",
+        "InventoryManagement"
+      ],
+      "Manufacturing & machining": [
+        "manufacturing",
+        "Machinists",
+        "PLC"
+      ],
+      "E-commerce sellers": [
+        "ecommerce",
+        "shopify",
+        "EtsySellers",
+        "FulfillmentByAmazon",
+        "AmazonSeller",
+        "Flipping",
+        "woocommerce"
+      ],
+      "Tax preparers": [
+        "taxpros"
+      ],
+      "Accountants & bookkeepers": [
+        "Accounting",
+        "Bookkeeping",
+        "QuickBooks"
+      ],
+      "Insurance agents": [
+        "InsuranceAgent",
+        "InsuranceProfessional"
+      ],
+      "Financial advisors": [
+        "CFP"
+      ],
+      "Lawyers & paralegals": [
+        "Lawyertalk",
+        "paralegal",
+        "LawFirm"
+      ],
+      "Childcare providers": [
+        "ECEProfessionals",
+        "Nanny"
+      ],
+      "Teachers & schools": [
+        "Teachers",
+        "teaching",
+        "k12sysadmin",
+        "specialed"
+      ],
+      "Professors & researchers": [
+        "Professors",
+        "AskAcademia",
+        "labrats",
+        "GradSchool"
+      ],
+      "Nonprofits & fundraising": [
+        "nonprofit",
+        "fundraising"
+      ],
+      "Churches, clubs & HOAs": [
+        "HOA"
+      ],
+      "Event & wedding pros": [
+        "EventProduction",
+        "weddingplanning",
+        "DJs"
+      ],
+      "Photographers & videographers": [
+        "photography",
+        "videography",
+        "WeddingPhotography"
+      ],
+      "Fitness studios & trainers": [
+        "personaltraining",
+        "yogateachers"
+      ],
+      "Salons, spas & beauty": [
+        "hairstylist",
+        "Estheticians",
+        "Barber",
+        "Nailtechs",
+        "TattooArtists",
+        "MassageTherapists"
+      ],
+      "Farms & ranches": [
+        "farming",
+        "homestead",
+        "Ranching",
+        "Beekeeping"
+      ],
+      "IT admins & MSPs": [
+        "msp",
+        "sysadmin",
+        "ITManagers"
+      ],
+      "HR & recruiting": [
+        "humanresources",
+        "recruiting",
+        "Payroll"
+      ],
+      "Sales teams": [
+        "sales"
+      ],
+      "Customer support teams": [
+        "CustomerSuccess"
+      ],
+      "Project managers": [
+        "projectmanagement"
+      ],
+      "Marketing & agencies": [
+        "marketing",
+        "PPC",
+        "SEO",
+        "socialmedia",
+        "agency"
+      ],
+      "Freelancers & consultants": [
+        "freelance",
+        "freelanceWriters",
+        "consulting",
+        "graphic_design"
+      ],
+      "Musicians, podcasters & creators": [
+        "WeAreTheMusicMakers",
+        "podcasting",
+        "NewTubers"
+      ],
+      "Libraries & archives": [
+        "Libraries",
+        "librarians"
+      ],
+      "Caregivers": [
+        "CaregiverSupport",
+        "AgingParents",
+        "dementia"
+      ],
+      "ADHD & neurodivergent": [
+        "ADHD",
+        "adhdwomen"
+      ],
+      "Health tracking & chronic illness": [
+        "ChronicIllness",
+        "diabetes",
+        "migraine"
+      ],
+      "Parents & families": [
+        "Parenting",
+        "workingmoms",
+        "coParenting"
+      ],
+      "Students": [
+        "college",
+        "GetStudying"
+      ],
+      "Job seekers": [
+        "jobsearchhacks"
+      ],
+      "Personal finance": [
+        "personalfinance",
+        "ynab",
+        "Frugal"
+      ],
+      "Homeowners & DIY": [
+        "homeowners",
+        "HomeImprovement",
+        "FirstTimeHomeBuyer"
+      ],
+      "Pet owners": [
+        "dogs",
+        "Pets"
+      ],
+      "Travelers": [
+        "travel",
+        "solotravel",
+        "TravelHacks"
+      ],
+      "_general": [
+        "smallbusiness",
+        "software",
+        "SomebodyMakeThis",
+        "AppIdeas",
+        "productivity",
+        "excel",
+        "androidapps",
+        "iosapps"
+      ]
+    }
+  },
+  "forums": {
+    "enabled": true,
+    "_comment": "Any forum running Discourse can be added: give its host, a display name, an optional niche and search phrases. Only opening posts are read.",
+    "topics_per_site": 40,
+    "sites": [
+      {
+        "name": "Shopify Community",
+        "host": "community.shopify.com",
+        "niche": "E-commerce sellers",
+        "queries": [
+          "is there an app that",
+          "looking for an app",
+          "app recommendation",
+          "is there a way to automatically",
+          "how do you handle"
+        ]
+      },
+      {
+        "name": "Spiceworks",
+        "host": "community.spiceworks.com",
+        "niche": "IT admins & MSPs",
+        "queries": [
+          "looking for software",
+          "software recommendation",
+          "is there a tool",
+          "alternative to"
+        ]
+      },
+      {
+        "name": "Mac Power Users",
+        "host": "talk.macpowerusers.com",
+        "queries": [
+          "is there an app",
+          "looking for an app",
+          "alternative to"
+        ]
+      },
+      {
+        "name": "Make Community",
+        "host": "community.make.com",
+        "queries": [
+          "is there a way to automate",
+          "manually every",
+          "looking for a way to"
+        ]
+      }
+    ]
+  },
+  "freelance": {
+    "enabled": true,
+    "_comment": "Freelancer.com projects where a business pays for a custom tool or for repetitive work: a need with a budget attached.",
+    "per_query": 50,
     "queries": [
-      "\"is there a tool\"",
-      "\"is there an app\"",
-      "\"I wish there was\"",
-      "\"would pay for\"",
-      "\"so frustrating\"",
-      "\"looking for software\"",
-      "\"manually\" spreadsheet",
-      "\"alternative to\"",
-      "\"spreadsheet to track\"",
-      "\"track it in excel\""
+      "automate",
+      "automation spreadsheet",
+      "data entry",
+      "management system",
+      "internal tool",
+      "custom crm",
+      "inventory system",
+      "booking system",
+      "google sheets",
+      "excel macro",
+      "workflow",
+      "integration"
+    ]
+  },
+  "hackernews": {
+    "enabled": true,
+    "_comment": "All Ask HN posts of the week, comments using a clear need phrase, and replies in 'what problem do you wish was solved' threads.",
+    "comment_phrases": [
+      "I would pay for",
+      "I'd pay for",
+      "I wish there was a",
+      "is there a tool that",
+      "is there an app that",
+      "is there a service that",
+      "why is there no",
+      "someone should build",
+      "we built an internal tool"
     ],
-    "max_requests": 120
+    "idea_thread_days": 180,
+    "idea_thread_min_comments": 30,
+    "idea_threads_max": 8
   },
   "stackexchange": {
     "enabled": true,
-    "sites": [
-      "softwarerecs",
-      "webapps",
-      "superuser",
-      "pm",
-      "money"
-    ],
+    "lookback_days": 30,
+    "request_sites": {
+      "softwarerecs": "Software Recommendations"
+    },
+    "topic_sites": {
+      "pm": "Project Management SE",
+      "money": "Personal Finance SE",
+      "workplace": "Workplace SE",
+      "academia": "Academia SE",
+      "freelancing": "Freelancing SE",
+      "law": "Law SE",
+      "diy": "Home Improvement SE"
+    }
+  },
+  "bluesky": {
+    "enabled": true,
+    "min_length": 90,
     "phrases": [
-      "is there",
-      "looking for",
-      "how can I automate",
-      "software for",
-      "tool to"
-    ],
-    "pagesize": 50
-  },
-  "github": {
-    "enabled": true,
-    "_comment": "Highly upvoted feature requests opened recently = an unmet need inside an existing tool.",
-    "queries": [
-      "is:issue is:open label:enhancement",
-      "is:issue is:open label:\"feature request\"",
-      "is:issue is:open \"feature request\" in:title"
-    ],
-    "created_within_days": 45,
-    "min_reactions": 15
-  },
-  "app_store": {
-    "enabled": true,
-    "_comment": "1-3 star reviews of the top-grossing apps in each genre (found fresh every day) plus the fixed list. 3-star reviews are kept only when they name a missing feature, price, usability or integration gap.",
-    "country": "us",
-    "apps": {
-      "QuickBooks": "584606479",
-      "Shopify": "371294472",
-      "Square POS": "335393788",
-      "Slack": "618783545",
-      "Notion": "1232780281",
-      "Asana": "489969512",
-      "Trello": "461504587",
-      "Zoom": "546505307",
-      "Canva": "897446215",
-      "Mailchimp": "366794783",
-      "Microsoft Teams": "1113153706",
-      "Google Sheets": "842849113",
-      "Evernote": "281796108"
-    },
-    "max_rating": 3,
-    "discover_top_grossing_genres": {
-      "Business": 6000,
-      "Productivity": 6007,
-      "Finance": 6015
-    },
-    "discover_per_genre": 15
-  },
-  "shopify_apps": {
-    "enabled": true,
-    "_comment": "Most popular apps in each category (found fresh every day) plus these handles. 1-3 star reviews.",
-    "apps": [
-      "klaviyo-email-marketing",
-      "judgeme",
-      "omnisend",
-      "privy",
-      "loox",
-      "yotpo-social-reviews",
-      "shopify-inbox",
-      "shipstation",
-      "pagefly",
-      "gempages",
-      "matrixify",
-      "sufio"
-    ],
-    "max_rating": 3,
-    "discover_categories": [
-      "selling-products",
-      "orders-and-shipping",
-      "store-design",
-      "marketing-and-conversion",
-      "store-management",
-      "sales-channels",
-      "finding-products"
-    ],
-    "discover_per_category": 6
-  },
-  "wordpress_plugins": {
-    "enabled": true,
-    "plugins": [
-      "woocommerce",
-      "elementor",
-      "wordpress-seo",
-      "contact-form-7",
-      "wpforms-lite",
-      "jetpack",
-      "mailpoet",
-      "the-events-calendar"
-    ],
-    "max_rating": 3,
-    "discover_popular": 25
-  },
-  "jobs": {
-    "enabled": true,
-    "_comment": "Job Search Method: duties listed in job posts become '<duty> management software' ideas. Posts describing repetitive manual work also count as pain points.",
-    "remotive_searches": [
-      "data entry",
-      "virtual assistant",
-      "bookkeeper",
-      "operations assistant",
-      "admin assistant",
-      "reconciliation"
-    ],
-    "manual_work_signals": [
-      "data entry",
-      "manually",
-      "spreadsheet",
-      "copy and paste",
-      "reconcil",
-      "repetitive",
-      "update records",
-      "excel",
-      "invoice",
-      "scheduling",
-      "follow up",
-      "follow-up",
-      "chase",
-      "compile reports",
-      "back office"
-    ],
-    "themuse_categories": [
-      "Accounting and Finance",
-      "Administration and Office",
-      "Customer Service",
-      "Healthcare",
-      "Operations",
-      "Project Management",
-      "Sales",
-      "Retail",
-      "Education"
-    ],
-    "industries": [
-      "car dealership",
-      "dental office",
-      "property management",
-      "construction",
-      "logistics",
-      "restaurant",
-      "medical billing",
-      "insurance agency",
-      "law firm",
-      "accounting firm",
-      "veterinary clinic",
-      "hvac",
-      "manufacturing",
-      "nonprofit",
-      "home health care",
-      "salon"
-    ],
-    "adzuna_country": "us"
+      "is there an app that",
+      "I wish there was an app",
+      "wish there was a tool",
+      "why is there no app",
+      "someone should make an app",
+      "I would pay for an app",
+      "is there software that",
+      "is there a service that"
+    ]
   },
   "ai": {
-    "_comment": "Only used when the ANTHROPIC_API_KEY secret is set. Groups items into named problems and writes plain-English summaries.",
+    "_comment": "Only used when the ANTHROPIC_API_KEY secret is set. Groups the week's leads into named problems with who, why it's unmet, and an MVP.",
     "model": "claude-opus-5-5",
-    "max_items_sent": 180
-  },
-  "job_boards": {
-    "_comment": "Headless-browser scrape of the big job boards (collector/wtwn/jobscrape.py). Each day it runs a few searches from jobs.industries + jobs.remotive_searches, rotating so every industry comes up every few days. Sites that show a CAPTCHA or block page are marked blocked for the day; nothing tries to get around them. Set a site to false to stop visiting it.",
-    "enabled": true,
-    "sites": {
-      "linkedin": true,
-      "indeed": true,
-      "ziprecruiter": true,
-      "glassdoor": true,
-      "monster": true,
-      "dice": true,
-      "usajobs": true,
-      "google": true
-    },
-    "queries_per_day": 4,
-    "results_per_search": 15,
-    "details_per_search": 5,
-    "delay_seconds": [
-      3,
-      6
-    ],
-    "max_minutes": 25,
-    "serpapi_searches_per_day": 3
+    "max_items_sent": 220
   }
 }

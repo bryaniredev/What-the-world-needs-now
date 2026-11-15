@@ -171,3 +171,6 @@ tr.clickable:hover td { background: var(--surface-2); }
 ol.mvp { margin: 0; padding-left: 18px; }
 ul.quotes { margin: 8px 0 0; padding-left: 18px; }
 ul.quotes li { margin: 6px 0; color: var(--text-2); overflow-wrap: anywhere; }
+.item .need { margin: 6px 0 2px; padding-left: 10px; border-left: 3px solid var(--accent); color: var(--text); font-size: 15px; overflow-wrap: anywhere; }
+.chip.niche { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); color: var(--text); font-weight: 600; }
+.chip.sig { background: none; border: 1px solid var(--border); }

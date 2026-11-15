@@ -1,13 +1,13 @@
-name: Daily run + publish
+name: Weekly run + publish
 
 on:
   schedule:
-    - cron: "17 11 * * *"   # every day at 11:17 UTC
+    - cron: "0 0 * * 0"     # every Sunday at 00:00 UTC (midnight going into Sunday)
   workflow_dispatch:         # "Run workflow" button for an on-demand run
   push:
     paths:
       - "docs/**"
-      - ".github/workflows/daily.yml"
+      - ".github/workflows/weekly.yml"
 
 permissions:
   contents: write
@@ -15,7 +15,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: daily-run
+  group: weekly-run
   cancel-in-progress: false
 
 jobs:
@@ -48,7 +48,7 @@ jobs:
       # no data yet, so the very first push bootstraps the site.
       - id: gate
         run: |
-          if [ "${{ github.event_name }}" != "push" ] || [ ! -f docs/data/meta.json ]; then
+          if [ "${{ github.event_name }}" != "push" ] || [ ! -f docs/data/index.json ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
@@ -64,22 +64,6 @@ jobs:
       - run: pip install -r collector/requirements.txt
         if: steps.gate.outputs.run == 'true'
 
-      - name: Install headless browser
-        if: steps.gate.outputs.run == 'true'
-        run: python -m playwright install --with-deps --only-shell chromium
-
-      # Never fails the run: a site that blocks the browser is just recorded as blocked.
-      - name: Scrape job boards
-        if: steps.gate.outputs.run == 'true'
-        continue-on-error: true
-        timeout-minutes: 30
-        working-directory: collector
-        env:
-          USAJOBS_API_KEY: ${{ secrets.USAJOBS_API_KEY }}
-          USAJOBS_EMAIL: ${{ secrets.USAJOBS_EMAIL }}
-          SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
-        run: python -m wtwn.jobscrape --out "$RUNNER_TEMP/jobs.json"
-
       - name: Collect, analyse, encrypt
         if: steps.gate.outputs.run == 'true'
         working-directory: collector
@@ -89,10 +73,6 @@ jobs:
           REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
           REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
           STACKEXCHANGE_KEY: ${{ secrets.STACKEXCHANGE_KEY }}
-          ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}
-          ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          JOBS_SCRAPE_FILE: ${{ runner.temp }}/jobs.json
         run: python -m wtwn.run
 
       - name: Commit results
@@ -104,7 +84,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "Nothing new to commit"; exit 0
           fi
-          git commit -m "Daily run $(date -u +%F)"
+          git commit -m "Weekly run $(date -u +%F)"
           for i in 1 2 3 4; do
             git push && exit 0
             sleep $((i * 5)); git pull --rebase
