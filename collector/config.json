@@ -1,7 +1,7 @@
 {
   "_comment": "Edit this file to tune where the weekly run looks. Every source is optional; one that fails is logged and skipped.",
   "lookback_days": 8,
-  "max_items_per_run": 600,
+  "max_items_per_run": 500,
   "min_signal_strength": 3,
   "reddit": {
     "enabled": true,
@@ -25,17 +25,17 @@
         "psychotherapy"
       ],
       "Medical practices & clinics": [
-        "medicine",
         "FamilyMedicine",
         "healthIT",
         "CodingandBilling",
         "physicaltherapy",
         "optometry",
-        "Chiropractic"
+        "Chiropractic",
+        "PrivatePractice"
       ],
       "Nursing & home care": [
-        "nursing",
-        "hospice"
+        "hospice",
+        "homecare"
       ],
       "Short-term rental hosts": [
         "airbnb_hosts",
@@ -52,7 +52,6 @@
       ],
       "HVAC, plumbing & electrical": [
         "HVAC",
-        "Plumbing",
         "electricians"
       ],
       "Landscaping & lawn care": [
@@ -71,8 +70,7 @@
         "Construction",
         "ConstructionManagers",
         "estimators",
-        "Roofing",
-        "Carpentry"
+        "Roofing"
       ],
       "Auto repair & dealerships": [
         "AutoDetailing",
@@ -83,7 +81,6 @@
         "restaurateur",
         "restaurantowners",
         "BarOwners",
-        "KitchenConfidential",
         "foodtrucks",
         "Chefit"
       ],
@@ -156,13 +153,12 @@
       ],
       "Event & wedding pros": [
         "EventProduction",
-        "weddingplanning",
-        "DJs"
+        "DJs",
+        "eventplanners"
       ],
       "Photographers & videographers": [
-        "photography",
-        "videography",
-        "WeddingPhotography"
+        "WeddingPhotography",
+        "videography"
       ],
       "Fitness studios & trainers": [
         "personaltraining",
@@ -232,40 +228,18 @@
         "ADHD",
         "adhdwomen"
       ],
-      "Health tracking & chronic illness": [
-        "ChronicIllness",
-        "diabetes",
-        "migraine"
-      ],
       "Parents & families": [
-        "Parenting",
         "workingmoms",
         "coParenting"
-      ],
-      "Students": [
-        "college",
-        "GetStudying"
       ],
       "Job seekers": [
         "jobsearchhacks"
       ],
       "Personal finance": [
         "personalfinance",
-        "ynab",
-        "Frugal"
-      ],
-      "Homeowners & DIY": [
-        "homeowners",
-        "HomeImprovement",
-        "FirstTimeHomeBuyer"
-      ],
-      "Pet owners": [
-        "dogs",
-        "Pets"
+        "ynab"
       ],
       "Travelers": [
-        "travel",
-        "solotravel",
         "TravelHacks"
       ],
       "_general": [
@@ -274,9 +248,10 @@
         "SomebodyMakeThis",
         "AppIdeas",
         "productivity",
-        "excel",
-        "androidapps",
-        "iosapps"
+        "excel"
+      ],
+      "Retail shops": [
+        "RetailManagement"
       ]
     }
   },
@@ -334,17 +309,17 @@
     "per_query": 50,
     "queries": [
       "automate",
-      "automation spreadsheet",
-      "data entry",
+      "spreadsheet",
+      "manual process",
       "management system",
       "internal tool",
-      "custom crm",
       "inventory system",
       "booking system",
       "google sheets",
-      "excel macro",
+      "excel",
       "workflow",
-      "integration"
+      "paper forms",
+      "tracking system"
     ]
   },
   "hackernews": {

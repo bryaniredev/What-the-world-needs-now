@@ -55,7 +55,11 @@ def _strip_html(s):
     return re.sub(r"[ \t]+", " ", BeautifulSoup(html.unescape(s), "html.parser").get_text("\n")).strip()
 
 
+_QUOTES = str.maketrans({"\u2019": "'", "\u2018": "'", "\u201c": '"', "\u201d": '"', "\u00a0": " "})
+
+
 def _item(source, channel, kind, id_, url, title, text, created, engagement=0, **extra):
+    title, text = (title or "").translate(_QUOTES), (text or "").translate(_QUOTES)  # so "I’d pay" reads as "I'd pay"
     it = {
         "id": f"{source}:{id_}",
         "source": source,
@@ -295,13 +299,22 @@ def forums(cfg, since, http, status):
 
 
 # -------------------------------------------------------------- Freelance gigs
-_GIG_NEED = re.compile(r"automat|spreadsheet|\bexcel\b|google sheets?|manual(?:ly)?\b|data entry|management system|internal tool|workflow|integrat|\bsync|"
-                       r"dashboard|\bcrm\b|inventory|booking|scheduling|invoic|tracking system|reporting|copy(?:ing)? (?:and )?past", re.I)
+# A gig is a lead when a business describes how it copes today (by hand, in a spreadsheet, on paper)
+# and wants that replaced. Requests to hire a developer, a VA or a marketer for a named tech stack are not.
+_GIG_NOW = re.compile(r"\bmanual(?:ly)?\b|\bby hand\b|\bspread ?sheets?\b|\bexcel\b|\bgoogle sheets?\b|\bpaper\b|\bhandwritten\b|\bcopy(?:ing)?[ -](?:and[ -])?past|"
+                      r"\bwhatsapp groups?\b|\bcurrently\b|\bright now\b|\bat the moment\b|\bat present\b|\binstead of\b|\boutgr(?:ew|own|owing)\b|"
+                      r"\breplace (?:our|my|the|an?)\b|\btoo (?:slow|time[- ]consuming|expensive)\b|\btime[- ]consuming\b", re.I)
+_GIG_WANT = re.compile(r"automat|\bsystem\b|\btool\b|\bapp\b|software|dashboard|\bcrm\b|\bportal\b|\btracker\b|database|workflow|integrat|\bsync", re.I)
 _GIG_BUSINESS = re.compile(r"\b(?:my|our) (?:business|company|shop|store|clinic|practice|firm|agency|team|office|restaurant|warehouse|clients?|customers?|staff|"
-                           r"employees|organi[sz]ation|school|church|nonprofit|operations?)\b|\bwe (?:are|run|have|need|currently|use|sell|manage|operate)\b"
-                           r"|\bi (?:run|own|manage|operate)\b|\bsmall business\b", re.I)
-_GIG_SKIP = re.compile(r"\blogo\b|\bseo\b|article|content writ|translat|video edit|social media (?:post|manag)|lead gen|cold call|backlink|"
-                       r"\bnft\b|crypto|trading bot|forex|betting|casino|homework|assignment|thesis|essay|long[- ]term (?:developer|partner)|join our team", re.I)
+                           r"employees|organi[sz]ation|school|church|nonprofit|operations?|technicians|crew|drivers|tenants|patients)\b"
+                           r"|\bwe (?:are a|run|currently|sell|manage|operate)\b|\bi (?:run|own|manage|operate)\b|\bsmall business\b|\bin-house\b", re.I)
+_GIG_SKIP = re.compile(
+    r"\blogo\b|\bseo\b|article|content writ|translat|video edit|\breels?\b|social media|lead gen|qualified leads|cold call|backlink|\bnft\b|crypto|trading|forex|"
+    r"betting|casino|homework|assignment|thesis|essay|virtual assistant|\bva\b|appointment setter|telecaller|corporate trainers?|"
+    r"data entry (?:operator|clerk|specialist|expert)|long[- ]term|monthly retainer|per month|part[- ]time|full[- ]time|join our team|"
+    r"\b(?:we are|we're|i am|i'm) (?:seeking|looking for|hiring) (?:a |an )?(?:skilled|experienced|senior|expert|talented|full[- ]stack|freelance)|"
+    r"\b(?:developer|engineer|programmer|specialist|expert|detailers?|operator|coordinator|trainer|freelancer) (?:needed|required|wanted)\b|"
+    r"\b(?:react|laravel|django|node\.?js|next\.?js|flutter|kubernetes|aws|magento|odoo|salesforce|ruby on rails|esp32|plc|ninjatrader|solidworks|autocad|revit|gtm|ga4)\b", re.I)
 
 
 def freelance(cfg, since, http, status):
@@ -319,7 +332,7 @@ def freelance(cfg, since, http, status):
                 text = f"{p.get('title', '')}\n{desc}"
                 if p.get("language") not in (None, "en") or len(desc) < 150:
                     continue
-                if _GIG_SKIP.search(text) or not (_GIG_NEED.search(text) and _GIG_BUSINESS.search(text)):
+                if _GIG_SKIP.search(text) or not (_GIG_NOW.search(text) and _GIG_WANT.search(text) and _GIG_BUSINESS.search(text)):
                     continue
                 b, cur = p.get("budget") or {}, (p.get("currency") or {}).get("code", "")
                 lo, hi = b.get("minimum"), b.get("maximum")

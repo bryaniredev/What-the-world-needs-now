@@ -6,6 +6,7 @@
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from collections import Counter
@@ -114,8 +115,17 @@ def build_run(date, raw, status, cfg, index, state, previous=None):
             e = sheets.setdefault(r["phrase"], {"phrase": r["phrase"], "count": 0, "examples": []})
             e["count"] += r["count"]
             e["examples"] = (e["examples"] + r["examples"])[:3]
-    kept.sort(key=lambda x: -x["pain_score"])
-    kept = kept[: cfg.get("max_items_per_run", 600)]
+    kept.sort(key=lambda x: (-x["pain_score"], x["id"]))
+    for it in kept:
+        seen[it["id"]] = date  # including cross-posted copies, so they don't come back next week
+    # The same post in several communities counts once (highest score wins).
+    uniq, texts = [], set()
+    for it in kept:
+        fp = re.sub(r"\W+", "", (it["title"] + it["text"][:160]).lower())
+        if fp not in texts:
+            texts.add(fp)
+            uniq.append(it)
+    kept = uniq[: cfg.get("max_items_per_run", 600)]
     for it in kept:
         seen[it["id"]] = date
     cutoff = (datetime.fromisoformat(date) - timedelta(days=200)).strftime("%Y-%m-%d")

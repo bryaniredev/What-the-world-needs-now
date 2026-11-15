@@ -99,8 +99,38 @@ class PipelineTest(unittest.TestCase):
 
 
 class AnalyzeTest(unittest.TestCase):
+    def _score(self, title, text, hint=None, **kw):
+        it = {"id": "x", "source": "t", "kind": "discussion", "engagement": 0, "title": title, "text": text, **kw}
+        if hint:
+            it["niche_hint"] = hint
+        return analyze.score_item(it)
+
+    def test_same_words_but_not_a_lead(self):
+        for title, text, hint in [
+            ("Construction worker gifts", "Looking for next level starter tools for my brother, he has a project coming up.", "Construction & contractors"),
+            ("I'm at a loss with bed time", "I feel like I have really tried everything and nothing works. We've tried a bunch of things.", "Parents & families"),
+            ("Overstay", "I'm completely willing to pay whatever official fine is required for the two days.", "Travelers"),
+            ("Imposter syndrome", "How do you all manage this, especially when you've got a large caseload? It eats hours of my week.", "Therapists & counsellors"),
+            ("Enzyme cleaner", "Hoping pet owners can recommend a pet safe solution for our problem. I looked online.", "Pet owners"),
+            ("Question for sellers", "I'm researching a desktop tool for Amazon sellers who use spreadsheets. How do you track profit manually every week?", "E-commerce sellers"),
+            ("Location access", "Is there any legitimate reason these apps would need background location access?", None),
+            ("Construction accounting", "Not looking for a software sale here, just a general question about retainage and my clients.", "Accountants & bookkeepers"),
+        ]:
+            self.assertFalse(self._score(title, text, hint)["keep"], title)
+
+    def test_real_leads(self):
+        for title, text, hint in [
+            ("Saving emails", "I'm wondering if anyone has recommendations on affordable apps/programs that make saving emails to the matter easier?", "Lawyers & paralegals"),
+            ("Packing slip and shipping label separation", "Has anyone found a solution? We print 200 orders a day.", "E-commerce sellers"),
+            ("Workpapers", "Does anyone else lose hours to capturing screenshots for workpapers and documentation?", "Accountants & bookkeepers"),
+            ("Moving from SimplePractice to Clerie?", "Private practice therapists, advice please.", "Therapists & counsellors"),
+            ("Budget app", "Is there an app that would help my aging father plan a monthly budget?", "Personal finance"),
+            ("Quotes", "Landscapers: how do you handle customer quotes and estimates? Mine take all evening.", "Landscaping & lawn care"),
+        ]:
+            self.assertTrue(self._score(title, text, hint)["keep"], title)
+
     def test_need_statement_prefers_the_problem(self):
-        it = analyze.score_item({"id": "x", "source": "t", "kind": "discussion", "engagement": 0, "title": "Scheduling crews",
+        it = analyze.score_item({"id": "x", "source": "t", "kind": "discussion", "engagement": 0, "title": "Scheduling crews", "niche_hint": "Landscaping & lawn care",
                                  "text": "Every week I spend hours manually moving jobs around a whiteboard and texting guys. There has to be a better way."})
         self.assertTrue(it["keep"])
         self.assertIn("whiteboard", it["need"])
@@ -140,6 +170,7 @@ class SourceTest(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertIn("before=100", calls[1])
         self.assertEqual(len(items), 100)  # 99 + 1, the removed post is skipped
+        self.assertEqual(sources._item("s", "c", "discussion", 1, "u", "I\u2019d pay", "can\u2019t", 0)["title"], "I'd pay")
         self.assertEqual(items[0]["niche_hint"], "Dental practices")
         self.assertEqual(items[1]["engagement"], 5)
         self.assertTrue(st["reddit"]["ok"])

@@ -8,7 +8,7 @@ import math
 import re
 from collections import Counter, defaultdict
 
-TOOL = (r"(?:tool|tools|app|apps|software|program|service|platform|plugin|plug-in|extension|system|solution|"
+TOOL = (r"(?:tool|tools|app|apps|software|service|platform|plugin|plug-in|extension|system|solution|"
         r"product|website|crm|saas|add-?on|integration|template|script|bot|database|tracker|portal)")
 GAP = r"[^.?!\n]{0,60}?"
 
@@ -18,12 +18,13 @@ STRONG = [
      r"\b(?:i|we)(?:'d| would|'ll| will) (?:happily |gladly |literally |definitely |totally |absolutely |honestly )?pay\b"
      r"|\b(?:willing|happy|glad) to pay\b|\btake my money\b|\bwould pay (?:good money|for)\b|\bworth paying for\b"),
     ("ask_tool", "asking for a tool", 4,
-     rf"\b(?:is|are) there (?:a|an|any|some)\b{GAP}\b{TOOL}\b"
+     rf"\b(?:is|are) there (?:a|an|any|some)\b(?!\s+(?:\w+\s+){{0,2}}(?:reason|chance|point|difference|downside|risk|benefit|evidence|proof|hope|possibility|issue|problem|limit)s?\b){GAP}\b{TOOL}\b"
      rf"|\b(?:does|do|has|have) (?:anyone|anybody|any of you|you guys|y'all)(?: here)? (?:know|use|have|recommend|found|tried)\b{GAP}\b{TOOL}\b"
      rf"|\b(?:anyone|anybody)(?: here)? (?:know|use|using|recommend|found|have)\b{GAP}\b{TOOL}\b"
      rf"|\blooking for (?:a |an |some |any |the best |good |decent )?{GAP}\b{TOOL}\b"
      rf"|\b(?:what|which)\b[^.?!\n]{{0,30}}?\b{TOOL}\b[^.?!\n]{{0,40}}?\b(?:do you|are you|does everyone|do y'all|do you all|do you guys|would you|should i|should we|is best|are people|do people|do other)\b"
-     rf"|\b(?:recommend|recommendation|recommendations|suggestions?|advice)\b[^.?!\n]{{0,40}}?\b{TOOL}\b"
+     rf"|\b(?:what|which)\b[^.?!\n]{{0,30}}?\b{TOOL}\b[^.?!\n]{{0,30}}?\b(?:is|are|works?) (?:good|best|better|the best|recommended|worth)\b"
+     rf"|\b(?:recommend|recommendation|recommendations|suggestions?)\b[^.?!\n]{{0,40}}?\b{TOOL}\b"
      rf"|\b{TOOL}\b[^.?!\n]{{0,25}}\b(?:recommendations?|suggestions?)\b"
      rf"|\bneed (?:a|an|some)\b[^.?!\n]{{0,40}}?\b{TOOL}\b (?:that|to|for|which)\b"),
     ("wish", "wishes it existed", 4,
@@ -48,7 +49,7 @@ STRONG = [
      r"(?i:alternatives? to|replacement for|substitute for|switch(?:ing|ed)? (?:away )?from|mov(?:e|ing|ed) (?:away )?from|migrat(?:e|ing|ed) (?:away )?from) (?=[A-Z0-9])"),
     ("ask_way", "asking if it's possible", 2,
      r"\bis there (?:a|any|an easy|an easier|a better|some|a simple) way to\b|\bany way to\b"),
-    ("time_sink", "costs hours", 2,
+    ("time_sink", "costs hours", 3,
      r"\b(?:spend|spending|spent|wastes?|wasting|wasted|takes? (?:me|us)|taking (?:me|us)|eats? up|lose|losing)\b[^.?!\n]{0,40}\b(?:hours|all day|forever|half (?:my|the|a) day|whole day|entire day|days|weekends?)\b"),
 ]
 WEAK = [
@@ -261,74 +262,160 @@ def keywords_for(text, n=8):
 
 
 # ----------------------------------------------------------- signals + need
-def signals_for(text):
-    """Returns (strong_weight, weak_weight, [keys])."""
-    keys, strong, weak = [], 0, 0
-    pain = bool(_PAIN.search(text))
-    for key, _, w, rx in _STRONG:
-        hit = (bool(_MANUAL.search(text)) and pain) if key == "manual" else \
-              (bool(_SHEET.search(text)) and pain) if key == "spreadsheet" else bool(rx.search(text))
-        if hit:
-            keys.append(key)
-            strong += w
-    for key, _, w, rx in _WEAK:
-        if rx.search(text):
-            keys.append(key)
-            weak += w
-    return strong, weak, keys
+# A signal only counts when the sentence it sits in is about software or a work process.
+# "Looking for a better tool" from a carpenter, "we've tried everything" from a parent and
+# "I'd pay the fine" are the same words as a lead, but not leads.
+SOFT = re.compile(
+    r"\b(?:apps?|software|saas|crm|erp|plugins?|plug-ins?|extensions?|add-?ons?|platforms?|web ?apps?|websites?|spread ?sheets?|excel|"
+    r"google (?:sheets?|docs|forms?|calendar)|airtable|notion|zapier|quickbooks|xero|automat\w+|integrat\w+|dashboards?|templates?|"
+    r"databases?|portals?|apis?|sync(?:s|ed|ing)?|cloud[- ]based|ios|android|chrome|subscriptions?|scripts?|macros?|bots?|chatgpt|"
+    r"point of sale|pos system|online (?:tool|system|portal|booking|form|scheduler|calendar)s?|e-?sign\w*|text reminders?|sms)\b", re.I)
+_UNAMB = re.compile(r"\b(?:apps?|software|saas|crm|plugins?|plug-ins?|extensions?|platforms?|websites?|add-?ons?|integrations?|bots?|databases?|portals?|scripts?)\b", re.I)
+_TOOLN = re.compile(rf"\b{TOOL}\b", re.I)
+_FIRST = re.compile(r"\b(?:i|we|my|our|i'm|we're|i've|we've|me|us|anyone else|anybody else)\b", re.I)
+_NEG = re.compile(r"\b(?:not|never|isn't|aren't|wasn't)\b|n't\b", re.I)
+# Trades where "tool", "system" or "solution" usually means something you hold or install.
+PHYSICAL_NICHES = {"Construction & contractors", "HVAC, plumbing & electrical", "Landscaping & lawn care", "Auto repair & dealerships",
+                   "Manufacturing & machining", "Farms & ranches", "Salons, spas & beauty", "Cleaning & home services"}
+_BUSINESS = re.compile(
+    r"\b(?:my|our) (?:business|company|shop|store|clinic|practice|firm|agency|team|office|restaurant|warehouse|clients?|customers?|patients?|"
+    r"staff|employees|crews?|techs|tenants|students|members|donors|vendors|suppliers|bookkeeper|accountant|jobs|properties|units|listings)\b"
+    r"|\bi (?:run|own|manage|operate)\b|\bwe (?:run|are a|have \d+)\b|\bwe're a\b|\bsmall business\b|\bself[- ]employed\b|\bsolo (?:practice|practitioner|attorney|shop)\b", re.I)
+_CLAUSE = re.compile(rf"\b{TOOL}\b[^.?!]{{0,20}}?\b(?:that|which|to|for|where|so)\b\s+\w+\s+\w+", re.I)
+_PAY_OBJ = re.compile(r"pay (?:\w+ ){0,3}?for (?:something|anything|one|this|that|it|a|an)\b", re.I)
+_WISH_COULD = re.compile(r"\bi (?:really |just |so |honestly )?wish (?:i could|we could|i had|we had|it (?:was|were) possible)\b", re.I)
+_WISH_EXISTS = re.compile(
+    r"\bi (?:really |just |so |honestly )?wish (?:there (?:was|were|is)|someone would|somebody would)\b"
+    r"|\bif only there (?:was|were)\b|\bsomeone (?:should|needs to|please) (?:build|make|create|invent)\b"
+    r"|\bwhy (?:is there no|isn't there|isnt there|hasn't anyone|has no ?one|hasn't someone|does no ?one|doesn't anyone)\b"
+    r"|\bdoes (?:this|that|something like (?:this|that)|such a (?:thing|tool|app)|anything like (?:this|that)) (?:even |already |actually )?exist\b", re.I)
+_RX = {k: rx for k, _, _, rx in _STRONG if rx is not None}
+_W = {k: w for k, _, w, _ in STRONG}
+_HOW = re.compile(
+    r"\bhow (?:do|does|are|did|is) (?:you|y'all|you all|you guys|everyone|everybody|other \w+(?: \w+)?|others|people|most \w+|your (?:team|office|shop|practice|company|firm|crew)) "
+    r"(?:all |guys |even |actually |currently |folks )*(?:handle|handling|manage|managing|keep track of|keeping track of|track|tracking|"
+    r"organi[sz]e|organi[sz]ing|stay on top of|staying on top of|automate|automating|streamline|bill|invoice|schedule|scheduling|collect|store|document|price|quote)\b", re.I)
+
+# Who is speaking as a private person, not as someone doing a job.
+CONSUMER_NICHES = {"Caregivers", "ADHD & neurodivergent", "Health tracking & chronic illness", "Parents & families", "Students",
+                   "Job seekers", "Personal finance", "Homeowners & DIY", "Pet owners", "Travelers"}
+CONSUMER_THEMES = {"Money, budgets & subscriptions", "Health, habits & care", "Pricing & affordability"}
+_WORK_KW = [rx for t, rxs in _THEME_RX.items() if t not in CONSUMER_THEMES for rx in rxs]
 
 
-def need_statement(title, text, keys):
-    """The sentence where the person states what they need."""
-    sents = [s.strip() for s in SENT.split(f"{title}\n{text}") if 25 <= len(s.strip()) <= 320]
-    best, best_w = None, 0
-    for s in sents:
-        w = 0
-        for key, _, wt, rx in _STRONG:
-            if rx is not None and rx.search(s):
-                w += wt
-        if (_MANUAL.search(s) or _SHEET.search(s)) and _PAIN.search(s):
-            w += 3
-        if w and len(s) >= 60:
-            w += 1  # prefer the sentence that says what the problem is over a bare "is there a better way?"
-        if w > best_w:
-            best, best_w = s, w
-    if not best:
-        best = (title or (sents[0] if sents else text)).strip()
-    return re.sub(r"\s+", " ", best)[:300]
+def _work_topic(s):
+    return any(rx.search(s) for rx in _WORK_KW)
 
 
-def short(t, n=90):
-    t = re.sub(r"\s+", " ", t or "").strip()
-    return t if len(t) <= n else t[: n - 1].rsplit(" ", 1)[0] + "…"
+def _sentences(title, text):
+    parts = ([title.strip()] if title and title.strip() else []) + [x.strip() for x in SENT.split(text or "")]
+    return [x for x in parts if 20 <= len(x) <= 500]
+
+
+def _qualify(sent, c):
+    """Signals in this sentence that are about software or a work process. c = facts about the whole post."""
+    hits = []
+    soft_post, work, pain_post, topic_post = c["soft"], c["work"], c["pain"], c["topic"]
+    soft, first = bool(SOFT.search(sent) or _UNAMB.search(sent)), bool(_FIRST.search(sent))
+    topic = _work_topic(sent)
+    m = _RX["ask_tool"].search(sent)
+    if m and not _NEG.search(sent[max(0, m.start() - 24):m.start() + 4]):
+        # "tool", "system", "solution" need backing: software in the sentence or title, or a work topic.
+        if _UNAMB.search(m.group(0)) or soft or c["soft_title"] or (
+                soft_post and topic if c["physical"] else work and (topic or topic_post)):
+            hits.append("ask_tool")
+    if (_WISH_EXISTS.search(sent) and (soft or (work and topic))) or (_WISH_COULD.search(sent) and soft):
+        hits.append("wish")
+    if _RX["pay"].search(sent) and (soft or (soft_post and _PAY_OBJ.search(sent))):
+        hits.append("pay")
+    if _RX["nothing_fits"].search(sent) and soft:
+        hits.append("nothing_fits")
+    if _RX["switch"].search(sent) and products_for(sent) and (soft_post or work):
+        hits.append("switch")
+    if _HOW.search(sent) and work and (topic or soft):
+        hits.append("how_handle")
+    if _MANUAL.search(sent) and first and work and (pain_post or _PAIN.search(sent)) and (topic_post or soft_post):
+        hits.append("manual")
+    if _SHEET.search(sent) and first and (_PAIN.search(sent) or (work and pain_post)):
+        hits.append("spreadsheet")
+    if _RX["time_sink"].search(sent) and first and work and (topic_post or soft_post):
+        hits.append("time_sink")
+    if _RX["better_way"].search(sent) and work and (topic or soft):
+        hits.append("better_way")
+    if _RX["ask_way"].search(sent) and work and (topic or soft):
+        hits.append("ask_way")
+    return hits
+
+
+# Founders fishing for pain points or demand, written to look like a peer's question.
+_RESEARCH = re.compile(
+    r"\bwhat(?:'s| is| are) (?:your|the) (?:biggest|main|most|top|#1|number one|single biggest) (?:\w+ )?(?:pain|challenge|headache|frustration|problem|time[- ]?suck|bottleneck|struggle)"
+    r"|\bwhat (?:do|would|did) you (?:wish|hate|dislike)\b|\bwhat would make (?:it|you|this)\b|\bdeal-?breakers?\b"
+    r"|\bi (?:surveyed|interviewed|talked (?:to|with)|spoke (?:to|with)|asked) (?:over |about |around |nearly )?\d+\b|\b(?:doing|conducting) (?:some |a bit of |market |customer |user )*research\b"
+    r"|\bnot (?:selling|promoting|pitching)\b|\bno (?:pitch|sales pitch|self[- ]promo(?:tion)?)\b|\bnot (?:a |an )?(?:ad|advert|promo|sales pitch|promotion)\b"
+    r"|\bis there (?:any |a |real |enough )?(?:demand|market|appetite) for\b|\bwould (?:there be|this be|that be) (?:any |enough )?(?:interest|demand|useful|valuable)\b"
+    r"|\b(?:thinking|considering) (?:of|about) (?:building|making|creating|developing)\b|\bi(?:'m| am) (?:a |an )?(?:developer|software engineer|founder|indie hacker|product manager|programmer|dev)\b"
+    r"|\bhow (?:do|are) you (?:all |guys )?(?:currently )?(?:handl|manag|track|do)\w* (?:it|this|that) (?:right now|now|today|currently)\b"
+    r"|\b(?:genuinely |just |honestly )?curious (?:how|what|if|whether) (?:others|other \w+|you|people|most|everyone|anyone)\b"
+    r"|\bwould love (?:your|any|some|to (?:hear|get)) (?:your )?(?:feedback|thoughts|input) on (?:my|our|this|the idea)\b|\bhonest (?:feedback|opinions?)\b"
+    r"|\bwhat (?:software|tools?|apps?) (?:do|are) you (?:currently |all |guys )?(?:pay|paying) for\b"
+    r"|\bi(?:'m| am) (?:researching|exploring|validating|prototyping|designing) (?:a|an|the|whether|if)\b|\bfeel free to answer\b"
+    r"|\blooking for (?:\w+ )?(?:ideas|problems|pain points) (?:for|to|that|worth)\b"
+    r"|\bhow (?:do|are) you (?:all |guys )?currently\b|\b(?:about )?how much time do you (?:spend|waste)\b|\bwhat(?:'s| is) the most (?:frustrating|annoying|painful|time[- ]consuming)\b"
+    r"|\bwhat(?:'s| is) the one thing (?:it|they|your)\b|\bquick (?:question|poll) for (?:all )?(?:the )?\w+ (?:owners|sellers|managers|pros)\b", re.I)
 
 
 def score_item(it, min_strong=3):
     """Annotates the item. it['keep'] says whether it is a lead."""
     title, text = it.get("title") or "", it.get("text") or ""
     full = f"{title}\n{text}"
-    strong, weak, keys = signals_for(full)
-    implied = it.get("implied")  # the source itself is the signal (a gig, a software-request site, an idea thread)
-    if implied and implied not in keys:
-        keys.insert(0, implied)
-        strong += {"gig": 4, "ask_tool": 4, "idea_thread": 3}.get(implied, 3)
-    it["signals"] = keys
-    it["keep"] = False
-    if strong < min_strong or len(full) < 60:
+    it["keep"], it["signals"] = False, []
+    if len(full) < 60:
         return it
-    promo = it["kind"] != "gig" and _PROMO.search(full)
-    support = _SUPPORT.search(full) and not (set(keys) & {"pay", "ask_tool", "wish", "nothing_fits", "gig"})
-    if promo or support:
-        it["dropped"] = "promo" if promo else "support"
-        return it
-
     hint = it.get("niche_hint")
     niche = hint or detect_niche(full) or GENERAL
+    soft_post, pain_post = bool(SOFT.search(full)), bool(_PAIN.search(full))
+    # Speaking as someone doing a job: the community says so, or the post does ("my clients", "I run a...").
+    work = bool(hint and hint not in CONSUMER_NICHES) or bool(_BUSINESS.search(full))
+    c = {"soft": soft_post, "work": work, "pain": pain_post, "topic": _work_topic(full),
+         "soft_title": bool(SOFT.search(title) or _UNAMB.search(title)), "physical": niche in PHYSICAL_NICHES}
+
+    best, best_w, keys = None, 0, []
+    for sent in _sentences(title, text):
+        hits = _qualify(sent, c)
+        if not hits:
+            continue
+        w = sum(_W[h] for h in hits) + (1.5 if _CLAUSE.search(sent) else 0) + (1 if len(sent) >= 60 else 0)
+        if w > best_w:
+            best, best_w = sent, w
+        keys += [h for h in hits if h not in keys]
+    implied = it.get("implied")  # the source itself is the signal (a gig, a software-request site, an idea thread)
+    if implied and implied not in keys and (implied != "idea_thread" or soft_post or c["topic"]):
+        keys.insert(0, implied)
+    strong = sum({"gig": 4, "idea_thread": 3}.get(k, _W.get(k, 0)) for k in keys)
+    it["signals"] = keys
+    if strong < min_strong:
+        return it
+    if it["kind"] != "gig" and (_PROMO.search(full) or _RESEARCH.search(full)):
+        it["dropped"] = "promo"
+        return it
+    if _SUPPORT.search(full) and not (set(keys) & {"pay", "wish", "nothing_fits", "gig"}):
+        it["dropped"] = "support"
+        return it
+
+    weak = [k for k, _, _, rx in _WEAK if rx.search(full)]
+    keys += weak
+    themes = themes_for(full)
     it["niche"] = niche
-    it["themes"] = themes_for(full)
+    it["themes"] = themes
     it["saas_fit"] = saas_fit_for(full, keys)
     it["costs"] = costs_for(keys, full)
-    it["need"] = need_statement(title, text, keys)
+    if not best and it["kind"] == "gig":
+        best = next((x for x in _sentences("", text) if re.search(r"\b(?:need|looking for|want|require|would like)\b", x, re.I)), None)
+    need = re.sub(r"\s+", " ", best or title or text).strip()
+    if best and title and title.strip() not in need and (len(need) < 70 or not _CLAUSE.search(need)):
+        need = f"{title.strip().rstrip('.:')}: {need}"
+    it["need"] = need[:320]
     if not title or title.lower().startswith("comment on"):
         it["title"] = short(it["need"], 110)
     it["keywords"] = keywords_for(full)
@@ -337,14 +424,18 @@ def score_item(it, min_strong=3):
     if products:
         it["products"] = products
         it["complaints"] = complaint_types_for(full)
-    score = strong + min(weak, 2) + (1 if niche != GENERAL else 0) + (1 if len([k for k in keys if k in _STRONG_KEYS]) >= 2 else 0)
-    score += math.log1p(max(0, it.get("engagement", 0))) * 0.8
+    score = (min(strong, 12) + min(len(weak), 2) + (1.5 if best and _CLAUSE.search(best) else 0)
+             + (1 if niche != GENERAL else 0) + (1 if themes[0] != OTHER and themes[0] not in CONSUMER_THEMES else 0)
+             + min(2.0, 0.4 * math.log1p(max(0, it.get("engagement", 0)))))
     it["pain_score"] = round(score, 1)
     it["keep"] = True
     return it
 
 
-_STRONG_KEYS = {k for k, _, w, _ in STRONG if w >= 3} | {"gig", "idea_thread"}
+def short(t, n=90):
+    t = re.sub(r"\s+", " ", t or "").strip()
+    return t if len(t) <= n else t[: n - 1].rsplit(" ", 1)[0] + "…"
+
 
 # --------------------------------------------- products people want to leave
 _PRODUCT = re.compile(
