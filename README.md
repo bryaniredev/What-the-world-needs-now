@@ -68,7 +68,7 @@ Edit `collector/config.json` to change the communities, forums, phrases or thres
 2. **Turn on Pages.** *Settings → Pages → Build and deployment → Source: GitHub Actions.*
    (Pages on a private repo needs a paid GitHub plan. The data is encrypted, so a public repo is fine.)
 3. **Run it once.** *Actions → Weekly run + publish → Run workflow.* After about 10–15 minutes the site is at
-   `https://<your-user>.github.io/<repo>/`. After that it runs every Sunday at 00:00 UTC. To change the time,
+   `https://<your-user>.github.io/<repo>/`. After that it runs every Monday at 00:01 UTC. To change the time,
    edit the `cron` line in `.github/workflows/weekly.yml` (GitHub schedules are always in UTC).
 
 The passphrase is not case-sensitive: the collector and the page both lower-case it.

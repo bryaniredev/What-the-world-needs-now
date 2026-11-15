@@ -2,7 +2,7 @@ name: Weekly run + publish
 
 on:
   schedule:
-    - cron: "0 0 * * 0"     # every Sunday at 00:00 UTC (midnight going into Sunday)
+    - cron: "1 0 * * 1"     # every Monday at 00:01 UTC
   workflow_dispatch:         # "Run workflow" button for an on-demand run
   push:
     paths:

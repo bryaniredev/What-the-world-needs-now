@@ -517,7 +517,7 @@
   function renderAbout(main) {
     main.innerHTML = `<div class="prose">
       <h2>How it works</h2>
-      <p>Every Sunday a GitHub Action reads the past week's posts in places where people who do a job talk to each other, keeps only the posts where someone states a need that isn't being met, works out who they are (the niche) and what kind of problem it is, and adds the result to the history you see here.</p>
+      <p>Every Monday a GitHub Action reads the past week's posts in places where people who do a job talk to each other, keeps only the posts where someone states a need that isn't being met, works out who they are (the niche) and what kind of problem it is, and adds the result to the history you see here.</p>
       <h2>Where it looks, and why</h2>
       <ul>
         <li><strong>Reddit communities of practitioners</strong> (about 160, grouped into some 50 niches: dental practices, landlords, HVAC contractors, bookkeepers, restaurant owners, teachers, caregivers…). The whole week of posts is read, not a keyword search, so “how do you all handle X?” is caught as well as “is there a tool for X?”.</li>
