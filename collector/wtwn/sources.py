@@ -280,7 +280,7 @@ def forums(cfg, since, http, status):
         got = 0
         for tid, t in list(topics.items())[: cfg.get("topics_per_site", 40)]:
             try:
-                r = http.get(f"https://{host}/t/{tid}.json", delay=1.5)
+                r = http.get(f"https://{host}/t/{tid}.json", delay=3.0)
                 r.raise_for_status()
                 j = r.json()
                 first = j["post_stream"]["posts"][0]

@@ -114,6 +114,9 @@ class AnalyzeTest(unittest.TestCase):
             ("Enzyme cleaner", "Hoping pet owners can recommend a pet safe solution for our problem. I looked online.", "Pet owners"),
             ("Question for sellers", "I'm researching a desktop tool for Amazon sellers who use spreadsheets. How do you track profit manually every week?", "E-commerce sellers"),
             ("Location access", "Is there any legitimate reason these apps would need background location access?", None),
+            ("Relocating", "I'm potentially looking into moving from Ontario to Nova Scotia with my clients in mind.", "Therapists & counsellors"),
+            ("What app do you wish existed?", "Is there an app for your phone that you genuinely wish someone would create?", None),
+            ("Getting started", "Complete beginner here. What editing software and tools should I learn first?", "Musicians, podcasters & creators"),
             ("Construction accounting", "Not looking for a software sale here, just a general question about retainage and my clients.", "Accountants & bookkeepers"),
         ]:
             self.assertFalse(self._score(title, text, hint)["keep"], title)
@@ -123,7 +126,7 @@ class AnalyzeTest(unittest.TestCase):
             ("Saving emails", "I'm wondering if anyone has recommendations on affordable apps/programs that make saving emails to the matter easier?", "Lawyers & paralegals"),
             ("Packing slip and shipping label separation", "Has anyone found a solution? We print 200 orders a day.", "E-commerce sellers"),
             ("Workpapers", "Does anyone else lose hours to capturing screenshots for workpapers and documentation?", "Accountants & bookkeepers"),
-            ("Moving from SimplePractice to Clerie?", "Private practice therapists, advice please.", "Therapists & counsellors"),
+            ("Moving from SimplePractice to Clerie?", "Private practice therapists, advice please. The client portal is clunky.", "Therapists & counsellors"),
             ("Budget app", "Is there an app that would help my aging father plan a monthly budget?", "Personal finance"),
             ("Quotes", "Landscapers: how do you handle customer quotes and estimates? Mine take all evening.", "Landscaping & lawn care"),
         ]:

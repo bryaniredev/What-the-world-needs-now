@@ -85,6 +85,8 @@ _PROMO = re.compile(
     r"|\bwe(?:'re| are) hiring\b|\[hiring\]|\[for hire\]|\bmarket research\b|\bquick survey\b|\bfill out (?:this|my|a) survey\b"
     r"|\bwhat (?:problems?|pain points?) (?:do you|are you|would you)\b|\bwhat would you (?:want|like) (?:in|from) (?:a|an)\b", re.I)
 # One product's bug or account trouble: real, but not a niche worth building for.
+_CAREER = re.compile(r"\bshould i learn\b|\bto learn first\b|\bimprove my (?:profile|resume|cv|skills)\b|\bwhere do i start\b|\bcomplete beginner\b|"
+                     r"\bcareer (?:advice|change|path)\b|\bjob board\b|\b(?:contract|temp) roles?\b|\bstudy guide\b|\bexam\b|\bcertification (?:course|exam)\b", re.I)
 _SUPPORT = re.compile(
     r"\berror (?:code|message)\b|\bnot working\b|\bstopped working\b|\bwon't (?:load|open|sync|connect|let me|start|install)\b"
     r"|\bcan't (?:log ?in|login|sign in|access my)\b|\bkeeps (?:crashing|freezing)\b|\bafter (?:the |an |this )?(?:latest |recent |new )?update\b"
@@ -330,7 +332,8 @@ def _qualify(sent, c):
         hits.append("pay")
     if _RX["nothing_fits"].search(sent) and soft:
         hits.append("nothing_fits")
-    if _RX["switch"].search(sent) and products_for(sent) and (soft_post or work):
+    # "Alternatives to X" is a search for a replacement. "Moving from X" needs software context (it may be a city).
+    if _RX["switch"].search(sent) and products_for(sent) and (soft_post or (work and re.search(r"(?i)\balternatives? to\b|\breplacement for\b", sent))):
         hits.append("switch")
     if _HOW.search(sent) and work and (topic or soft):
         hits.append("how_handle")
@@ -338,7 +341,7 @@ def _qualify(sent, c):
         hits.append("manual")
     if _SHEET.search(sent) and first and (_PAIN.search(sent) or (work and pain_post)):
         hits.append("spreadsheet")
-    if _RX["time_sink"].search(sent) and first and work and (topic_post or soft_post):
+    if _RX["time_sink"].search(sent) and first and work and (topic or soft or _MANUAL.search(sent)):
         hits.append("time_sink")
     if _RX["better_way"].search(sent) and work and (topic or soft):
         hits.append("better_way")
@@ -361,6 +364,9 @@ _RESEARCH = re.compile(
     r"|\bwhat (?:software|tools?|apps?) (?:do|are) you (?:currently |all |guys )?(?:pay|paying) for\b"
     r"|\bi(?:'m| am) (?:researching|exploring|validating|prototyping|designing) (?:a|an|the|whether|if)\b|\bfeel free to answer\b"
     r"|\blooking for (?:\w+ )?(?:ideas|problems|pain points) (?:for|to|that|worth)\b"
+    r"|\byou(?:'ve| have)? (?:genuinely |always |ever |really )*wish(?:ed)? (?:someone|somebody|existed|there was)\b|\bwhat could save (?:you|your)\b"
+    r"|\b(?:problem|app|tool|thing)s? (?:in your (?:daily )?life |at work )?(?:that )?you(?:'d| would)? (?:wish|want|pay)\b|\bhave you ever (?:wished|wanted|needed)\b"
+    r"|\bweek of (?:january|february|march|april|may|june|july|august|september|october|november|december)\b|\bnews recap\b"
     r"|\bhow (?:do|are) you (?:all |guys )?currently\b|\b(?:about )?how much time do you (?:spend|waste)\b|\bwhat(?:'s| is) the most (?:frustrating|annoying|painful|time[- ]consuming)\b"
     r"|\bwhat(?:'s| is) the one thing (?:it|they|your)\b|\bquick (?:question|poll) for (?:all )?(?:the )?\w+ (?:owners|sellers|managers|pros)\b", re.I)
 
@@ -401,6 +407,9 @@ def score_item(it, min_strong=3):
         return it
     if _SUPPORT.search(full) and not (set(keys) & {"pay", "wish", "nothing_fits", "gig"}):
         it["dropped"] = "support"
+        return it
+    if it["kind"] != "gig" and _CAREER.search(full):
+        it["dropped"] = "career"
         return it
 
     weak = [k for k, _, _, rx in _WEAK if rx.search(full)]
@@ -551,5 +560,5 @@ def niche_clusters(items, max_clusters=40):
             "method": "niche",
         })
     # Specific niches and named problem areas first; catch-all buckets sink.
-    clusters.sort(key=lambda c: -(c["score"] * (0.5 if c["niche"] == GENERAL else 1) * (0.6 if c["theme"] == OTHER else 1)))
+    clusters.sort(key=lambda c: -(c["score"] * (0.4 if c["niche"] == GENERAL else 1) * (0.4 if c["theme"] == OTHER else 1)))
     return clusters[:max_clusters]
