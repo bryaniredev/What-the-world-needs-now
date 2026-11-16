@@ -21,7 +21,7 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     # Also lets the job read SITE_PASSPHRASE if it was saved as a github-pages environment secret.
     environment: github-pages
     steps:

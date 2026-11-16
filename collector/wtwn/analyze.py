@@ -415,6 +415,11 @@ def score_item(it, min_strong=3):
     weak = [k for k, _, _, rx in _WEAK if rx.search(full)]
     keys += weak
     themes = themes_for(full)
+    # Business: speaking as someone doing a job. Everything else is a private person's wish.
+    named = niche != GENERAL and niche not in CONSUMER_NICHES  # the text itself names a line of work
+    it["segment"] = "business" if (work or named or it["kind"] == "gig") else "consumer"
+    it["buyer_pts"] = (25 if (it["kind"] == "gig" or (hint and hint not in CONSUMER_NICHES)) else 20 if work else 16 if named
+                       else 8 if niche == GENERAL else 6)
     it["niche"] = niche
     it["themes"] = themes
     it["saas_fit"] = saas_fit_for(full, keys)
@@ -530,7 +535,7 @@ def search_keyword(niche, theme):
     return base if niche == GENERAL else f"{base} for {niche.lower().replace(' & ', ' and ')}"
 
 
-def niche_clusters(items, max_clusters=40):
+def niche_clusters(items, max_clusters=60):
     """Group leads by who has the problem and what kind it is. The key is stable from week
     to week, so the same niche + problem area can be followed over time."""
     groups = defaultdict(list)
@@ -538,27 +543,255 @@ def niche_clusters(items, max_clusters=40):
         groups[(it["niche"], it["themes"][0])].append(it)
     clusters = []
     for (niche, theme), members in groups.items():
-        members.sort(key=lambda x: -x["pain_score"])
-        if len(members) < 2 and members[0]["pain_score"] < 9:
+        members.sort(key=lambda x: -x.get("opp", x["pain_score"]))
+        if len(members) < 2 and members[0].get("opp", 0) < 55:
             continue
         top = members[0]
         others = [o for o in dict.fromkeys(short(m["need"], 110) for m in members[1:6]) if o != short(top["need"], 110)]
-        sources = sorted({m["source"] for m in members})
-        score = sum(m["pain_score"] for m in members) * (1 + 0.25 * (len(sources) - 1))
         clusters.append({
             "key": f"{_slug(niche)}--{_slug(theme)}",
             "title": theme if niche == GENERAL else f"{niche}: {theme[0].lower() + theme[1:]}",
-            "summary": f"“{short(top['need'], 220)}”" + (f" Also: “{others[0]}”" if others else ""),
+            "summary": f"\u201c{short(top['need'], 220)}\u201d" + (f" Also: \u201c{others[0]}\u201d" if others else ""),
             "niche": niche,
             "theme": theme,
             "saas_fit": Counter(m["saas_fit"] for m in members).most_common(1)[0][0],
             "costs": sorted({c for m in members for c in m.get("costs", [])}),
             "search_keyword": search_keyword(niche, theme),
             "item_ids": [m["id"] for m in members],
-            "sources": sources,
-            "score": round(score, 1),
+            "sources": sorted({m["source"] for m in members}),
             "method": "niche",
         })
-    # Specific niches and named problem areas first; catch-all buckets sink.
-    clusters.sort(key=lambda c: -(c["score"] * (0.4 if c["niche"] == GENERAL else 1) * (0.4 if c["theme"] == OTHER else 1)))
-    return clusters[:max_clusters]
+    return clusters[:400]
+
+
+# ------------------------------------------------------------------ replies
+# What the replies say decides whether a need is unmet: "same here" versus "just use X".
+_ME_TOO = re.compile(
+    r"\bsame (?:here|boat|problem|issue|situation|question|thing|struggle)\b|\bme too\b|\bme as well\b|\bfollowing\b|"
+    r"\balso (?:looking|interested|need|struggling|curious|searching|in the market)\b|\bin the same (?:boat|spot|situation|position)\b|"
+    r"\bi(?:'d| would) (?:also )?(?:love|like) to know\b|\bcommenting to (?:follow|see|find)\b|\bremind ?me\b|^\+1\b|\bhaving the same\b|"
+    r"\bwe have the same\b|\bbeen looking for (?:this|the same|something like)\b|\bi need this\b|\bcurious (?:too|as well)\b|"
+    r"\bwould love (?:this|that|one)\b|\binterested (?:too|as well|in this)\b|\bwe struggle with (?:this|the same)\b|\bsaving this\b", re.I)
+_NO_EXIST = re.compile(
+    r"\b(?:doesn't|does not|don't think (?:it|that|one)) exist\b|\bnothing (?:like that|good|out there|exists)\b|"
+    r"\bno (?:good|great|real|decent|perfect) (?:option|solution|tool|app|software|answer)s?\b|\b(?:haven't|have not|never) found (?:one|anything|a good)\b|"
+    r"\bif you find (?:one|something|anything)\b|\blet me know (?:if|what) you find\b|\bbuilt (?:my|our) own\b|"
+    r"\bended up (?:building|making|writing|using (?:excel|a spreadsheet|google sheets))\b|\bwe (?:just |still )?use (?:excel|a spreadsheet|spreadsheets|google sheets)\b", re.I)
+_REC = re.compile(
+    r"(?i:\b(?:use|using|used|try|tried|check out|look into|look at|looked at|recommend|suggest|love|like|switched to|moved to|went with|go with|"
+    r"swear by|happy with|been on|signed up for|second|vouch for)\b) (?:(?i:the|a|an|our|their|out|with|by|into|at|for)\s+)?"
+    r"((?:[A-Z][A-Za-z0-9.+]*|[a-z]+[A-Z][A-Za-z0-9]*)(?:[ -](?:[A-Z][A-Za-z0-9.+]*|[0-9]{1,4}))?)")
+_MD_LINK = re.compile(r"\[([^\]]{2,40})\]\(https?://[^)\s]+\)")
+_DOMAIN = re.compile(r"https?://(?:www\.|app\.)?([a-z0-9-]{3,30})\.(?:com|io|app|co|ai|net|org|so|dev|us|ca|uk)\b", re.I)
+_VENDOR = re.compile(
+    r"\b(?:i|we)(?:'ve| have)? (?:just |recently )?(?:built|made|created|developed|launched)\b|\bi(?:'m| am) (?:the|a) (?:founder|creator|developer|owner|ceo|co-?founder)\b|"
+    r"\b(?:my|our) (?:app|tool|product|saas|platform|startup|company|software|team built)\b|\bdm me\b|\bshameless plug\b|\bfull disclosure\b|\bdisclaimer:? i\b|\bi work (?:for|at)\b", re.I)
+_OBJECT = re.compile(
+    r"\btoo (?:expensive|pricey|complicated|complex|much|clunky)\b|\bpricey\b|\boverkill\b|\bdoesn't (?:do|have|support|work|handle|integrate|let)\b|"
+    r"\bdoes not (?:do|have|support|work|handle)\b|\b(?:i|we)(?:'ve| have)? (?:already )?tried (?:it|that|them|those|both)\b|\bnot (?:what|quite|really) (?:i|we)\b|"
+    r"\balready (?:use|using|tried)\b|\bwon't work\b|\bno good\b|\bbut it (?:lacks|doesn't|can't|only)\b|\bonly (?:works|does|supports)\b|"
+    r"\bstill (?:have to|need to|doesn't)\b|\bnone of (?:them|those|these)\b|\bhated it\b|\bcancel(?:l)?ed\b", re.I)
+_OP_HAPPY = re.compile(
+    r"\bthank(?:s| you)\b[^.!?\n]{0,60}\b(?:perfect|exactly|this is what|will (?:try|check|look|give)|great|awesome|helpful)\b|\bthat's (?:exactly|perfect)\b|"
+    r"\bjust what i\b|\bsigned up\b|\bgoing (?:to go )?with\b|\bwill (?:check|try) (?:it|that|them|this) out\b|\bexactly what i (?:was looking for|needed)\b", re.I)
+_NOT_TOOL = _NOT_PRODUCT | {"excel", "google sheets", "sheets", "google", "reddit", "youtube", "facebook", "linkedin", "amazon", "god", "ok", "yes",
+                             "op", "edit", "eta", "lol", "imo", "fwiw", "tbh", "fyi", "diy", "pdf", "csv", "api", "llc", "cpa", "irs", "hipaa",
+                             "github", "imgur", "wikipedia", "docs", "bit", "amzn", "discord", "twitter", "instagram", "tiktok"}
+
+REPLY_LABEL = {
+    "agree": "others say the same, no tool named", "open": "no tool suggested", "objections": "tools suggested, but not good enough",
+    "one_tool": "one tool suggested", "solved": "likely solved already", "pitched": "only vendor pitches",
+    "none": "no replies yet", "unread": "replies not read",
+}
+_UNMET_PTS = {"agree": 18, "objections": 16, "open": 12, "none": 8, "unread": 8, "pitched": 8, "one_tool": 6, "solved": 0}
+
+
+def _tools_in(body):
+    names = [m.group(1) for m in _REC.finditer(body)] + [m.group(1) for m in _MD_LINK.finditer(body)]
+    names += [m.group(1).capitalize() for m in _DOMAIN.finditer(body)]
+    first = body.strip().split("\n")[0].strip(" .!")
+    if (2 < len(first) <= 30 and len(first.split()) <= 2 and len(body) < 50 and not _ME_TOO.search(first)
+            and all(w[0].isupper() for w in first.split())):
+        names.append(first)  # a reply that is just a product name
+    out = []
+    for n in names:
+        n = n.strip(" .,-:!?")
+        if len(n) >= 3 and n.lower() not in _NOT_TOOL and n.split()[0].lower() not in _NOT_TOOL and n.lower() not in [o.lower() for o in out]:
+            out.append(n)
+    return out
+
+
+def reply_stats(it):
+    """Turns it['replies_raw'] into it['replies']: how many agree, which tools were suggested, and a verdict."""
+    raw = it.pop("replies_raw", None)
+    total = it.get("n_replies") or (len(raw) if raw else 0)
+    if raw is None or (not raw and total):
+        it["replies"] = {"n": total, "read": 0, "status": "unread" if total else "none"}
+        return it
+    others = [r for r in raw if not r["op"]]
+    op = [r for r in raw if r["op"]]
+    me_too = sum(1 for r in others if _ME_TOO.search(r["b"]) or _NO_EXIST.search(r["b"]))
+    tools, pitches = Counter(), 0
+    for r in others:
+        if _VENDOR.search(r["b"]):
+            pitches += 1
+            continue
+        for t in _tools_in(r["b"]):
+            tools[t] += 1
+    objections = sum(1 for r in op if _OBJECT.search(r["b"])) * 2 + sum(1 for r in others if _OBJECT.search(r["b"]) and not _tools_in(r["b"]))
+    happy = any(_OP_HAPPY.search(r["b"]) for r in op)
+    if not raw:
+        status = "none"
+    elif tools:
+        status = "solved" if happy else "objections" if objections >= 2 else "solved" if len(tools) >= 2 else "one_tool"
+    elif pitches:
+        status = "pitched"
+    else:
+        status = "agree" if me_too else "open"
+    it["replies"] = {"n": max(total, len(raw)), "read": len(raw), "me_too": me_too, "tools": [t for t, _ in tools.most_common(5)],
+                     "pitches": pitches, "objections": objections, "status": status}
+    return it
+
+
+# -------------------------------------------------------------- opportunity
+# Not "how many people mention it" but "is there money behind it": who would pay, what it costs
+# them now, whether anything already solves it, and how many are asking.
+_PRICE = re.compile(r"[$£€]\s?\d[\d,]*(?:\.\d+)?\s?[kK]?(?:\s?(?:/|per|a|each)\s?(?:mo|month|yr|year|user|seat|location|licen[sc]e|week)\b)?")
+_RECURRING = re.compile(r"(?:/|per|a|each)\s?(?:mo|month|yr|year|user|seat|location|licen[sc]e|week)\b", re.I)
+_LOSS = re.compile(
+    r"\blos(?:e|ing|t) (?:\w+ ){0,2}(?:money|customers|clients|revenue|sales|jobs|deals|leads|business)\b|"
+    r"\bcost(?:s|ing)? (?:me|us) (?:\w+ ){0,3}(?:money|clients|customers|thousands|hundreds|[$£€])|\bfines?\b|\bpenalt(?:y|ies)\b|"
+    r"\bchargebacks?\b|\bunbilled\b|\bmissed (?:billing|invoices|payments|deadlines?)\b|\bwrite-?offs?\b|\bmalpractice\b|\baudit(?:ed)?\b", re.I)
+_HOURS = re.compile(r"\b(?:\d+|several|a few|a couple(?: of)?|many|countless|multiple)\+? (?:hours|hrs|days)\b(?: (?:a|per|every|each) (?:day|week|month))?", re.I)
+_STAFF = re.compile(r"\b(?:my|our) (?:staff|team|employees|crew|crews|techs|technicians|admin|office manager|receptionist|bookkeeper|assistant|va|dispatcher|front desk)\b", re.I)
+OPP_MAX = {"buyer": 25, "money": 20, "cost": 20, "unmet": 20, "demand": 15}
+
+
+def opportunity(it):
+    """0-100 for one lead, with the parts kept so the dashboard can show why."""
+    full = f"{it['title']}\n{it['text']}"
+    sig = set(it["signals"])
+    money, anchors = 0, []
+    if "pay" in sig:
+        money += 8
+        anchors.append("says they would pay")
+    prices = [m.group(0).strip() for m in _PRICE.finditer(full)][:3]
+    if prices:
+        money += 5 + (2 if any(_RECURRING.search(x) for x in prices) else 0)
+        anchors.append("prices mentioned: " + ", ".join(prices))
+    if "too_expensive" in sig or "too_expensive" in it.get("complaints", []):
+        money += 5
+        anchors.append("current option is too expensive")
+    if it["kind"] == "gig":
+        usd = it.get("budget_usd") or 0
+        money += 10 if usd >= 1000 else 7 if usd >= 250 else 4
+        anchors.append(f"paying a freelancer ({it.get('budget') or 'budget not stated'})")
+    if _LOSS.search(full):
+        money += 6
+        anchors.append("losing money or at risk of penalties")
+    cost = min(12, 5 * len(sig & {"manual", "spreadsheet", "time_sink"}))
+    hours = _HOURS.search(full)
+    if hours:
+        cost += 4
+    if _STAFF.search(full):
+        cost += 4
+    rep = it.get("replies") or {"status": "none"}
+    unmet = _UNMET_PTS.get(rep["status"], 8) + (4 if "nothing_fits" in sig else 0) + min(6, 2 * rep.get("me_too", 0))
+    if rep["status"] == "solved":
+        unmet = min(unmet, 4)
+    parts = {
+        "buyer": it.get("buyer_pts", 8),
+        "money": min(20, money),
+        "cost": min(20, cost),
+        "unmet": min(20, unmet),
+        "demand": min(15, round(3.2 * math.log1p(max(0, it.get("engagement", 0))))),
+    }
+    it["opp_parts"] = parts
+    it["opp"] = min(100, sum(parts.values()) + (5 if it.get("events") else 0))
+    if anchors:
+        it["money_notes"] = anchors[:3]
+    if hours:
+        it["time_note"] = hours.group(0)
+    return it
+
+
+def problem_stats(p, members, weeks_seen=1):
+    """Opportunity for a group of leads: the strongest evidence, plus how widely and how long it has been voiced."""
+    members = sorted(members, key=lambda m: -m.get("opp", 0))
+    top = members[:3]
+    avg = lambda k: round(sum(m["opp_parts"][k] for m in top) / len(top))  # noqa: E731
+    authors = {m.get("author") or m["id"] for m in members}
+    sources = sorted({m["source"] for m in members})
+    demand = min(12, round(4 * math.log2(1 + len(authors)))) + min(6, 3 * (len(sources) - 1)) + min(12, 3 * (weeks_seen - 1))
+    parts = {"buyer": avg("buyer"), "money": avg("money"), "cost": avg("cost"), "unmet": avg("unmet"), "demand": min(30, demand)}
+    base = sum(m["opp"] for m in top) / len(top)
+    p["opp"] = min(100, round(0.7 * base + demand))
+    p["opp_parts"] = parts
+    p["segment"] = Counter(m["segment"] for m in members).most_common(1)[0][0]
+    p["sources"] = sources
+    p["people"] = len(authors)
+    p["score"] = round(sum(m["pain_score"] for m in members), 1)
+    statuses = Counter((m.get("replies") or {}).get("status", "none") for m in members)
+    tools = Counter(t for m in members for t in (m.get("replies") or {}).get("tools", []))
+    p["replies"] = {
+        "me_too": sum((m.get("replies") or {}).get("me_too", 0) for m in members),
+        "tools": [t for t, _ in tools.most_common(6)],
+        "statuses": dict(statuses),
+        "unmet": sum(statuses[k] for k in ("agree", "objections", "open")),
+        "solved": statuses["solved"],
+    }
+    notes = [n for m in members for n in m.get("money_notes", [])]
+    if notes:
+        p["money_notes"] = list(dict.fromkeys(notes))[:3]
+    return p
+
+
+def rank_problems(problems):
+    """Best opportunity first; catch-all buckets sink."""
+    problems.sort(key=lambda c: -(c.get("opp", 0) * (0.6 if c.get("niche") == GENERAL else 1) * (0.7 if c.get("theme") == OTHER else 1)))
+    return problems
+
+
+# ----------------------------------------------------------- forced changes
+# A product shutting down, raising prices, being bought or going down pushes all its users to look
+# for something else at the same moment. So does a new rule with a deadline.
+_EVP = r"((?:[A-Z][A-Za-z0-9.+]*|[a-z]+[A-Z][A-Za-z0-9]*|[A-Z0-9]{2,})(?:[ -](?:[A-Z][A-Za-z0-9.+]*|[0-9]{1,4}))?)"
+_EVENT_RX = [
+    ("shutdown", re.compile(_EVP + r"(?:'s)? (?i:(?:is |are |was |has been |will be |just |recently |now |officially )*(?:shutting down|shut down|sunsetting|"
+                                   r"sunset(?:ted)?|discontinu\w+|being retired|retiring|end(?:ing)? of life|going away|closing down|no longer (?:supported|available|maintained)))")),
+    ("shutdown", re.compile(r"(?i:shutdown|shut-down|sunset(?:ting)?|discontinuation|end of life|retirement|demise) of " + _EVP)),
+    ("price_increase", re.compile(_EVP + r"(?:'s)? (?i:(?:is |are |just |recently |has |have |now )*(?:rais(?:ing|ed)|increas(?:ing|ed)|doubl(?:ing|ed)|tripl(?:ing|ed)|hik(?:ing|ed)) "
+                                         r"(?:its |their |the |our |my )?(?:prices?|pricing|rates?|fees?|subscription))")),
+    ("price_increase", re.compile(_EVP + r"(?:'s)? (?i:(?:new )?(?:price|pricing|fee|rate) (?:increase|hike|jump))")),
+    ("acquisition", re.compile(_EVP + r" (?i:(?:was |has been |got |just |is being |being )+(?:acquired|bought|purchased|taken over) by)")),
+    ("outage", re.compile(_EVP + r"(?:'s)? (?i:(?:is |was |has been |went |keeps going )?(?:outage|down again|is down|was down|went down|been down for))")),
+]
+_REGULATION = re.compile(
+    r"\bnew (?:\w+ ){0,3}(?:regulations?|rules?|laws?|requirements?|mandate|legislation|reporting requirements?)\b|"
+    r"\b(?:regulations?|rules?|law|mandate|requirements?) (?:that )?(?:takes?|taking|goes?|going|comes?|coming|went|came) (?:into )?effect\b|\bcompliance deadline\b|"
+    r"\b(?:are now|is now|will be|will soon be) required to\b|\bmandatory (?:as of|from|starting|by)\b|"
+    r"\beffective (?:january|february|march|april|may|june|july|august|september|october|november|december) \d", re.I)
+_NOT_EVENT = _NOT_TOOL | {"server", "internet", "power", "site", "website", "system", "company", "store", "app", "account", "everything", "nothing",
+                           "business", "service", "email", "phone", "wifi", "network", "support", "market", "economy", "government", "school", "office",
+                           "who", "which", "since", "after", "when", "now", "also", "just", "then", "because", "while", "sales", "revenue", "traffic",
+                           "prices", "costs", "rent", "wages", "demand", "work", "today", "yesterday", "last", "next"}
+EVENT_LABEL = {"shutdown": "Shutting down", "price_increase": "Price increase", "acquisition": "Acquired", "outage": "Outage", "regulation": "New rule"}
+
+
+def events_for(title, text, hint=None):
+    """Forced changes mentioned in a post: [(type, subject)]."""
+    full = f"{title}\n{text}"
+    out = []
+    for kind, rx in _EVENT_RX:
+        for m in rx.finditer(full):
+            name = m.group(1).strip(" .,-'")
+            if name.endswith("'s"):
+                name = name[:-2]
+            if len(name) >= 3 and name.lower() not in _NOT_EVENT and name.split()[0].lower() not in _NOT_EVENT and (kind, name) not in out:
+                out.append((kind, name))
+    if hint and hint not in CONSUMER_NICHES:
+        for sent in _sentences(title, text):
+            if _REGULATION.search(sent):
+                out.append(("regulation", short(sent, 160)))
+                break
+    return out[:4]

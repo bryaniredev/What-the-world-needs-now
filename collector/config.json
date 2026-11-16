@@ -370,6 +370,16 @@
       "is there a service that"
     ]
   },
+  "replies": {
+    "_comment": "For the strongest leads each week the reply thread is read, to tell 'same here' from 'just use X'.",
+    "max_per_run": 250
+  },
+  "backfill": {
+    "_comment": "Used only by `python -m wtwn.backfill`. Past weeks take the newest pages_per_week x 100 posts per community.",
+    "pages_per_week": 2,
+    "replies_per_week": 40,
+    "delay_seconds": 0.7
+  },
   "ai": {
     "_comment": "Only used when the ANTHROPIC_API_KEY secret is set. Groups the week's leads into named problems with who, why it's unmet, and an MVP.",
     "model": "claude-opus-5-5",

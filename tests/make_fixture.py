@@ -26,6 +26,8 @@ TEMPLATES = [
      "We are a small cleaning business and use a whiteboard. I need something that handles shift scheduling and texts the staff."),
     ("bluesky", "Bluesky", "discussion", None, None, "",
      "I wish there was an app that let me share a grocery list with my elderly mom's caregivers and see what has been bought already"),
+    ("reddit", "r/ecommerce", "discussion", "E-commerce sellers", None, "Stocky is shutting down, what now?",
+     "Stocky is shutting down in a few months and Klaviyo raised their prices again. Is there any inventory app that handles purchase orders for my store?"),
     # ---- things that must be filtered out
     ("reddit", "r/Landlord", "discussion", "Landlords & property managers", None, "I built an app for landlords",
      "Hey all, I built a tool that tracks rent. Would you use this? Is there a tool like it already? Feedback on my landing page welcome."),
@@ -47,6 +49,20 @@ def make(n=60, seed=1, now=None):
         it = {"id": f"{s}:fx{seed}-{i}", "source": s, "channel": ch, "kind": k,
               "url": f"https://example.com/{seed}/{i}", "title": t, "text": x,
               "created": int(now - rnd.randint(0, 600000)), "engagement": rnd.randint(0, 300)}
+        it["author"] = f"user{seed}_{i % 9}"
+        if s == "reddit" and "Trust accounting" in t:
+            it["n_replies"] = 3
+            it["replies_raw"] = [
+                {"a": "a1", "b": "Same here, following.", "s": 2, "top": True, "op": False},
+                {"a": "a2", "b": "We use Clio for this.", "s": 3, "top": True, "op": False},
+                {"a": it["author"], "b": "I tried it, too expensive for a solo and doesn't do IOLTA reports.", "s": 1, "top": False, "op": True}]
+        if s == "reddit" and "ServiceTitan" in t:
+            it["n_replies"] = 2
+            it["replies_raw"] = [{"a": "b1", "b": "Try Jobber, we switched to Housecall Pro and love it.", "s": 4, "top": True, "op": False},
+                                 {"a": it["author"], "b": "Thanks, exactly what I needed, will check it out.", "s": 1, "top": False, "op": True}]
+        if s == "forums":
+            it["n_replies"] = 1
+            it["replies_raw"] = [{"a": "c1", "b": "Haven't found anything good. Let me know if you find one.", "s": 0, "top": True, "op": False}]
         if niche:
             it["niche_hint"] = niche
         if implied:

@@ -77,7 +77,7 @@ def refine(items, known, cfg):
     except ImportError:
         return None, "anthropic package not installed"
 
-    top = sorted(items, key=lambda x: -x["pain_score"])[: cfg.get("max_items_sent", 220)]
+    top = sorted(items, key=lambda x: -x.get("opp", x["pain_score"]))[: cfg.get("max_items_sent", 220)]
     payload = [
         {
             "id": it["id"], "niche": it["niche"], "theme": it["themes"][0], "where": it["channel"],

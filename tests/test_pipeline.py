@@ -74,6 +74,39 @@ class PipelineTest(unittest.TestCase):
             self.assertIn("client retainers", index["spreadsheet_uses"])
             self.assertIn("by_niche", index["days"][0])
 
+            # replies decide whether it is unmet
+            self.assertEqual(law["replies"]["status"], "objections")   # a tool was named, the poster says it falls short
+            self.assertEqual(law["replies"]["tools"], ["Clio"])
+            self.assertEqual(law["replies"]["me_too"], 1)
+            hvac = by_title["Alternatives to ServiceTitan for a small shop?"]
+            self.assertEqual(hvac["replies"]["status"], "solved")       # the poster thanked them
+            self.assertIn("Jobber", hvac["replies"]["tools"])
+            self.assertEqual(by_title["Is there an app that splits orders by supplier?"]["replies"]["status"], "agree")
+            self.assertNotIn("replies_raw", law)
+
+            # opportunity: money and unmet evidence outrank an answered question
+            self.assertGreater(law["opp"], hvac["opp"])
+            self.assertEqual(law["opp_parts"]["buyer"], 25)
+            self.assertLessEqual(hvac["opp_parts"]["unmet"], 4)
+            self.assertEqual(week["items"][0]["opp"], max(i["opp"] for i in week["items"]))
+            caregiver = next(i for i in week["items"] if i["source"] == "bluesky")
+            self.assertEqual(caregiver["segment"], "consumer")
+            self.assertEqual(law["segment"], "business")
+            self.assertEqual(index["days"][1]["seg"]["consumer"]["total"], 1)
+            prob = index["problems"]["lawyers-paralegals--bookkeeping-tax"]
+            self.assertEqual(prob["segment"], "business")
+            self.assertTrue(prob["leads"][0]["author"].startswith("user"))
+            self.assertIn("Clio", prob["tools"])
+            self.assertGreaterEqual(prob["opp"], 55)
+            self.assertEqual(week["problems"][0]["opp"], max(p["opp"] for p in week["problems"] if p["niche"] != "General"))
+
+            # forced changes
+            self.assertIn("shutdown|stocky", index["events"])
+            self.assertIn("price_increase|klaviyo", index["events"])
+            self.assertEqual(len(index["events"]["shutdown|stocky"]["counts"]), 3)
+            stocky = by_title["Stocky is shutting down, what now?"]
+            self.assertIn("Shutting down: Stocky", stocky["events"])
+
             # nothing readable in plain text
             self.assertNotIn("landlord", (d / "data" / "index.json").read_text().lower())
 
@@ -144,6 +177,33 @@ class AnalyzeTest(unittest.TestCase):
 
 
 class SourceTest(unittest.TestCase):
+    def test_reddit_history_buckets_and_caps(self):
+        calls = []
+
+        class R:
+            def __init__(self, data):
+                self._d = data
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {"data": self._d}
+
+        class H:
+            def get(self, url, **k):
+                calls.append(url)
+                before = int(url.split("before=")[1]) if "before=" in url else 400
+                if before > 300:   # a busy latest week: one full page of 100 posts, all inside week 3 (300..400)
+                    return R([{"id": f"w3-{i}", "title": "t", "selftext": "x", "created_utc": 399 - i * 0.5, "subreddit": "Big", "author": "u"} for i in range(100)])
+                return R([{"id": f"old-{t}", "title": "t", "selftext": "x", "created_utc": t, "subreddit": "Big", "author": "u"} for t in (250, 150, 50)])
+
+        weeks, note, errors = sources.reddit_history({"communities": {"Dental practices": ["Big"]}}, [0, 100, 200, 300, 400], H(), pages_per_week=1)
+        self.assertEqual([len(w) for w in weeks], [1, 1, 1, 100])
+        self.assertEqual(len(calls), 2)            # one page from the busy week, then a jump to the weeks before
+        self.assertIn("before=300", calls[1])
+        self.assertEqual(errors, [])
+
     def test_reddit_archive_paging(self):
         calls = []
 
@@ -175,6 +235,7 @@ class SourceTest(unittest.TestCase):
         self.assertEqual(len(items), 100)  # 99 + 1, the removed post is skipped
         self.assertEqual(sources._item("s", "c", "discussion", 1, "u", "I\u2019d pay", "can\u2019t", 0)["title"], "I'd pay")
         self.assertEqual(items[0]["niche_hint"], "Dental practices")
+        self.assertEqual(items[1]["n_replies"], 3)
         self.assertEqual(items[1]["engagement"], 5)
         self.assertTrue(st["reddit"]["ok"])
 
