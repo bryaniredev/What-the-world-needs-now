@@ -48,7 +48,7 @@ jobs:
       # no data yet, so the very first push bootstraps the site.
       - id: gate
         run: |
-          if [ "${{ github.event_name }}" != "push" ] || [ ! -f docs/data/index.json ]; then
+          if [ "${{ github.event_name }}" != "push" ] || [ ! -f docs/data/index.json ] || echo '${{ github.event.head_commit.message }}' | grep -qF '[collect]'; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"

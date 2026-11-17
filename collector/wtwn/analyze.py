@@ -455,7 +455,7 @@ def short(t, n=90):
 _PRODUCT = re.compile(
     r"(?i:alternatives? to|replacement for|substitute for|switch(?:ing|ed)? (?:away )?from|mov(?:e|ing|ed) (?:away )?from|"
     r"migrat(?:e|ing|ed) (?:away )?from|leaving|ditching|cancel(?:l)?(?:ing|ed)|fed up with|sick of|outgr(?:ew|own|owing)) "
-    r"((?:[A-Z][A-Za-z0-9.+]*|[a-z]+[A-Z][A-Za-z0-9]*|[A-Z0-9]{2,})(?:[ -](?:[A-Z][A-Za-z0-9.+]*|[0-9]{1,4}))?)")
+    r"((?:[A-Z][A-Za-z0-9+]*(?:\.[A-Za-z0-9]+)*|[a-z]+[A-Z][A-Za-z0-9]*|[A-Z0-9]{2,})(?:[ -](?:[A-Z][A-Za-z0-9+]*(?:\.[A-Za-z0-9]+)*|[0-9]{1,4}))?)")
 _NOT_PRODUCT = {"i", "the", "my", "we", "it", "this", "that", "they", "there", "these", "those", "our", "your", "you", "he",
                 "she", "a", "an", "and", "but", "if", "so", "is", "any", "all", "what", "when", "how", "why", "one", "some",
                 "us", "to", "in", "on", "for", "no", "not", "ai", "it's", "i'm", "usa", "uk", "us", "eu", "ceo", "saas", "crm",
@@ -578,9 +578,9 @@ _NO_EXIST = re.compile(
     r"\bif you find (?:one|something|anything)\b|\blet me know (?:if|what) you find\b|\bbuilt (?:my|our) own\b|"
     r"\bended up (?:building|making|writing|using (?:excel|a spreadsheet|google sheets))\b|\bwe (?:just |still )?use (?:excel|a spreadsheet|spreadsheets|google sheets)\b", re.I)
 _REC = re.compile(
-    r"(?i:\b(?:use|using|used|try|tried|check out|look into|look at|looked at|recommend|suggest|love|like|switched to|moved to|went with|go with|"
-    r"swear by|happy with|been on|signed up for|second|vouch for)\b) (?:(?i:the|a|an|our|their|out|with|by|into|at|for)\s+)?"
-    r"((?:[A-Z][A-Za-z0-9.+]*|[a-z]+[A-Z][A-Za-z0-9]*)(?:[ -](?:[A-Z][A-Za-z0-9.+]*|[0-9]{1,4}))?)")
+    r"(?i:\b(?:use|using|used|try|tried|check out|look into|recommend|suggest|switch(?:ed|ing)? to|moved to|went with|go with|"
+    r"swear by|happy with|signed up for|vouch for)\b) (?:(?i:the|a|an|our|their|out|with|by|into|at|for)\s+)?"
+    r"((?:[A-Z][A-Za-z0-9+]*(?:\.[A-Za-z0-9]+)*|[a-z]+[A-Z][A-Za-z0-9]*)(?:[ -](?:[A-Z][A-Za-z0-9+]*(?:\.[A-Za-z0-9]+)*|[0-9]{1,4}))?)")
 _MD_LINK = re.compile(r"\[([^\]]{2,40})\]\(https?://[^)\s]+\)")
 _DOMAIN = re.compile(r"https?://(?:www\.|app\.)?([a-z0-9-]{3,30})\.(?:com|io|app|co|ai|net|org|so|dev|us|ca|uk)\b", re.I)
 _VENDOR = re.compile(
@@ -594,7 +594,8 @@ _OBJECT = re.compile(
 _OP_HAPPY = re.compile(
     r"\bthank(?:s| you)\b[^.!?\n]{0,60}\b(?:perfect|exactly|this is what|will (?:try|check|look|give)|great|awesome|helpful)\b|\bthat's (?:exactly|perfect)\b|"
     r"\bjust what i\b|\bsigned up\b|\bgoing (?:to go )?with\b|\bwill (?:check|try) (?:it|that|them|this) out\b|\bexactly what i (?:was looking for|needed)\b", re.I)
-_NOT_TOOL = _NOT_PRODUCT | {"excel", "google sheets", "sheets", "google", "reddit", "youtube", "facebook", "linkedin", "amazon", "god", "ok", "yes",
+_NOT_TOOL = _NOT_PRODUCT | {"exercise", "healthcare", "styles", "exactly", "create", "paid", "professional", "mode", "rule", "rules", "detailed", "list", "line",
+                             "technology", "microsoft", "claude", "chatgpt", "gemini", "ai", "windows", "mac", "macs", "apple", "google", "excel", "google sheets", "sheets", "google", "reddit", "youtube", "facebook", "linkedin", "amazon", "god", "ok", "yes",
                              "op", "edit", "eta", "lol", "imo", "fwiw", "tbh", "fyi", "diy", "pdf", "csv", "api", "llc", "cpa", "irs", "hipaa",
                              "github", "imgur", "wikipedia", "docs", "bit", "amzn", "discord", "twitter", "instagram", "tiktok"}
 
@@ -606,9 +607,9 @@ REPLY_LABEL = {
 _UNMET_PTS = {"agree": 18, "objections": 16, "open": 12, "none": 8, "unread": 8, "pitched": 8, "one_tool": 6, "solved": 0}
 
 
-def _tools_in(body):
-    names = [m.group(1) for m in _REC.finditer(body)] + [m.group(1) for m in _MD_LINK.finditer(body)]
-    names += [m.group(1).capitalize() for m in _DOMAIN.finditer(body)]
+def _tools_in(body, context=""):
+    sites = [m.group(1).capitalize() for m in _DOMAIN.finditer(body)]   # named by their web address: not a common word
+    names = [m.group(1) for m in _REC.finditer(body)] + [m.group(1) for m in _MD_LINK.finditer(body)] + sites
     first = body.strip().split("\n")[0].strip(" .!")
     if (2 < len(first) <= 30 and len(first.split()) <= 2 and len(body) < 50 and not _ME_TOO.search(first)
             and all(w[0].isupper() for w in first.split())):
@@ -616,7 +617,12 @@ def _tools_in(body):
     out = []
     for n in names:
         n = n.strip(" .,-:!?")
-        if len(n) >= 3 and n.lower() not in _NOT_TOOL and n.split()[0].lower() not in _NOT_TOOL and n.lower() not in [o.lower() for o in out]:
+        if n not in sites and (len(n) < 3 or any(w.lower() in _NOT_TOOL or w.lower() in STOP for w in n.split())):
+            continue
+        # A product name is capitalised on purpose. If the same word appears in lower case in the thread, it is just a word.
+        if n not in sites and re.search(r"\b" + re.escape(n.lower()) + r"\b", (body + " " + context).replace(n, "")):
+            continue
+        if n.lower() not in [o.lower() for o in out]:
             out.append(n)
     return out
 
@@ -632,13 +638,14 @@ def reply_stats(it):
     op = [r for r in raw if r["op"]]
     me_too = sum(1 for r in others if _ME_TOO.search(r["b"]) or _NO_EXIST.search(r["b"]))
     tools, pitches = Counter(), 0
+    ctx = " ".join(it.get("text", "")[:600].split()) + " " + it.get("title", "")
     for r in others:
         if _VENDOR.search(r["b"]):
             pitches += 1
             continue
-        for t in _tools_in(r["b"]):
+        for t in _tools_in(r["b"], ctx):
             tools[t] += 1
-    objections = sum(1 for r in op if _OBJECT.search(r["b"])) * 2 + sum(1 for r in others if _OBJECT.search(r["b"]) and not _tools_in(r["b"]))
+    objections = sum(1 for r in op if _OBJECT.search(r["b"])) * 2 + sum(1 for r in others if _OBJECT.search(r["b"]) and not _tools_in(r["b"], ctx))
     happy = any(_OP_HAPPY.search(r["b"]) for r in op)
     if not raw:
         status = "none"
@@ -699,8 +706,11 @@ def opportunity(it):
     unmet = _UNMET_PTS.get(rep["status"], 8) + (4 if "nothing_fits" in sig else 0) + min(6, 2 * rep.get("me_too", 0))
     if rep["status"] == "solved":
         unmet = min(unmet, 4)
+    tool_seeking = sig & {"ask_tool", "wish", "pay", "nothing_fits", "switch", "gig", "manual", "spreadsheet"}
+    if not tool_seeking:  # "how do you cope" advice posts: real, but there is no software angle in what they said
+        unmet = unmet // 2
     parts = {
-        "buyer": it.get("buyer_pts", 8),
+        "buyer": it.get("buyer_pts", 8) if tool_seeking else it.get("buyer_pts", 8) // 2,
         "money": min(20, money),
         "cost": min(20, cost),
         "unmet": min(20, unmet),
@@ -755,7 +765,7 @@ def rank_problems(problems):
 # ----------------------------------------------------------- forced changes
 # A product shutting down, raising prices, being bought or going down pushes all its users to look
 # for something else at the same moment. So does a new rule with a deadline.
-_EVP = r"((?:[A-Z][A-Za-z0-9.+]*|[a-z]+[A-Z][A-Za-z0-9]*|[A-Z0-9]{2,})(?:[ -](?:[A-Z][A-Za-z0-9.+]*|[0-9]{1,4}))?)"
+_EVP = r"((?:[A-Z][A-Za-z0-9+]*(?:\.[A-Za-z0-9]+)*|[a-z]+[A-Z][A-Za-z0-9]*|[A-Z0-9]{2,})(?:[ -](?:[A-Z][A-Za-z0-9+]*(?:\.[A-Za-z0-9]+)*|[0-9]{1,4}))?)"
 _EVENT_RX = [
     ("shutdown", re.compile(_EVP + r"(?:'s)? (?i:(?:is |are |was |has been |will be |just |recently |now |officially )*(?:shutting down|shut down|sunsetting|"
                                    r"sunset(?:ted)?|discontinu\w+|being retired|retiring|end(?:ing)? of life|going away|closing down|no longer (?:supported|available|maintained)))")),
@@ -775,6 +785,10 @@ _NOT_EVENT = _NOT_TOOL | {"server", "internet", "power", "site", "website", "sys
                            "business", "service", "email", "phone", "wifi", "network", "support", "market", "economy", "government", "school", "office",
                            "who", "which", "since", "after", "when", "now", "also", "just", "then", "because", "while", "sales", "revenue", "traffic",
                            "prices", "costs", "rent", "wages", "demand", "work", "today", "yesterday", "last", "next"}
+_ALIAS = {k: "Microsoft 365" for k in ("outlook", "m365", "microsoft", "365", "o365", "0365", "microsoft outlook", "exchange online", "microsoft office",
+                                       "office 365", "microsoft 365", "repeat outlook", "teams", "microsoft teams")}
+_NOT_EVENT -= {"microsoft", "windows", "apple", "google", "claude", "chatgpt", "gemini", "mac", "macs", "excel", "workday", "crowdstrike"}
+_NOT_EVENT |= {"attorney", "occupancy", "duke", "west us", "netscape", "before netscape", "faa", "repeat", "lawyer", "client", "customer"}
 EVENT_LABEL = {"shutdown": "Shutting down", "price_increase": "Price increase", "acquisition": "Acquired", "outage": "Outage", "regulation": "New rule"}
 
 
@@ -787,6 +801,7 @@ def events_for(title, text, hint=None):
             name = m.group(1).strip(" .,-'")
             if name.endswith("'s"):
                 name = name[:-2]
+            name = _ALIAS.get(name.lower(), name)
             if len(name) >= 3 and name.lower() not in _NOT_EVENT and name.split()[0].lower() not in _NOT_EVENT and (kind, name) not in out:
                 out.append((kind, name))
     if hint and hint not in CONSUMER_NICHES:
