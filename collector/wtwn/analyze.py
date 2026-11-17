@@ -63,7 +63,7 @@ _WEAK = [(k, l, w, re.compile(p, re.I)) for k, l, w, p in WEAK]
 LABEL = {k: l for k, l, _, _ in STRONG + WEAK}
 LABEL.update({"gig": "paying for custom work", "idea_thread": "answer to “what problem needs solving?”"})
 
-_MANUAL = re.compile(r"\bmanual(?:ly)?\b|\bby hand\b|\bcopy(?:ing)?(?: and |[- ]and[- ]|/| ?& ?| )past(?:e|ing)\b|\bdata entry\b|\bre-?(?:enter|type|key)(?:ing)?\b"
+_MANUAL = re.compile(r"\bmanual(?!\s+(?:therapy|labou?r|transmission|gearbox|handling|lifting|work|driving|mode|override|testing|trade|worker|medicine|lymph|mobili[sz]ation|exam|scoring|focus|edit(?:or|ing)?|typewriter))(?:ly)?\b|\bby hand\b|\bcopy(?:ing)?(?: and |[- ]and[- ]|/| ?& ?| )past(?:e|ing)\b|\bdata entry\b|\bre-?(?:enter|type|key)(?:ing)?\b"
                      r"|\bdouble[- ]entry\b|\bpen and paper\b|\bpaper (?:forms?|files?|records?|logs?|notes|tickets|invoices)\b|\bwhiteboard\b|\bsticky notes\b|\bpost-?its?\b", re.I)
 _SHEET = re.compile(r"\bspread ?sheets?\b|\bexcel\b|\bgoogle sheets?\b", re.I)
 _PAIN = re.compile(r"\bhours\b|\bevery (?:single )?(?:day|week|month|time)\b|\btedious\b|\btime[- ]consuming\b|\bwast(?:e|ing)\b|\bnightmare\b|\b(?:sick|tired) of\b|\bhate\b"
@@ -594,7 +594,7 @@ _OBJECT = re.compile(
 _OP_HAPPY = re.compile(
     r"\bthank(?:s| you)\b[^.!?\n]{0,60}\b(?:perfect|exactly|this is what|will (?:try|check|look|give)|great|awesome|helpful)\b|\bthat's (?:exactly|perfect)\b|"
     r"\bjust what i\b|\bsigned up\b|\bgoing (?:to go )?with\b|\bwill (?:check|try) (?:it|that|them|this) out\b|\bexactly what i (?:was looking for|needed)\b", re.I)
-_NOT_TOOL = _NOT_PRODUCT | {"exercise", "healthcare", "styles", "exactly", "create", "paid", "professional", "mode", "rule", "rules", "detailed", "list", "line",
+_NOT_TOOL = _NOT_PRODUCT | {"reddit", "hahaha", "junk", "definitely", "tesla", "word", "native", "concept", "match", "paper", "exercise", "healthcare", "styles", "exactly", "create", "paid", "professional", "mode", "rule", "rules", "detailed", "list", "line",
                              "technology", "microsoft", "claude", "chatgpt", "gemini", "ai", "windows", "mac", "macs", "apple", "google", "excel", "google sheets", "sheets", "google", "reddit", "youtube", "facebook", "linkedin", "amazon", "god", "ok", "yes",
                              "op", "edit", "eta", "lol", "imo", "fwiw", "tbh", "fyi", "diy", "pdf", "csv", "api", "llc", "cpa", "irs", "hipaa",
                              "github", "imgur", "wikipedia", "docs", "bit", "amzn", "discord", "twitter", "instagram", "tiktok"}
