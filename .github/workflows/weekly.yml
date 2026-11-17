@@ -47,8 +47,11 @@ jobs:
       # Scheduled and manual runs always collect. A push only collects when there is
       # no data yet, so the very first push bootstraps the site.
       - id: gate
+        env:
+          EVENT: ${{ github.event_name }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
-          if [ "${{ github.event_name }}" != "push" ] || [ ! -f docs/data/index.json ] || echo '${{ github.event.head_commit.message }}' | grep -qF '[collect]'; then
+          if [ "$EVENT" != "push" ] || [ ! -f docs/data/index.json ] || printf '%s' "$COMMIT_MSG" | grep -qF '[collect]'; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
